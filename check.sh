@@ -35,3 +35,5 @@ prove verify.ci-literals crates/ci/src/verified_literals.rs
 prove verify.ci-downloads crates/ci/src/verified_download.rs
 prove verify.ci-inventory crates/ci/src/verified_inventory.rs
 prove verify.ci-downloads-tests crates/ci-tests/tests/verified_download.rs
+prove verify.ci-literals-tests crates/ci-tests/tests/verified_literals.rs
+prove verify.ci-inventory-tests crates/ci-tests/tests/verified_inventory.rs
