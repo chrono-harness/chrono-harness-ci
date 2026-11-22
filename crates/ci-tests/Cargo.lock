@@ -62,7 +62,6 @@ name = "chrono-ci-tests"
 version = "0.1.0"
 dependencies = [
  "chrono-ci",
- "chrono-harness",
  "verus_builtin_macros",
 ]
 
