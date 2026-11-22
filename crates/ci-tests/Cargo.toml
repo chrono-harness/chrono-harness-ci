@@ -1,0 +1,15 @@
+[package]
+name = "chrono-ci-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+autotests = false
+
+[dependencies]
+chrono-ci = { path = "../ci" }
+chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runner.git", rev = "a1cff08f74d996d618372f20adc203d1b5904d50" }
+verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+
+[[test]]
+name = "verified_download"
+path = "tests/verified_download.rs"

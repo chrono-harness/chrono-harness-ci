@@ -6,6 +6,8 @@ trap 'rm -rf -- "$scratch"' EXIT
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
 cargo fmt --check --manifest-path crates/ci/Cargo.toml
 cargo build --locked --manifest-path crates/ci/Cargo.toml
+cargo fmt --check --manifest-path crates/ci-tests/Cargo.toml
+cargo test --locked --manifest-path crates/ci-tests/Cargo.toml
 proof_bindings=()
 prove() {
   local label=$1 root=$2
@@ -32,3 +34,4 @@ proof_bindings=(--extern "chrono_identifiers=$scratch/libchrono_identifiers.rlib
 prove verify.ci-literals crates/ci/src/verified_literals.rs
 prove verify.ci-downloads crates/ci/src/verified_download.rs
 prove verify.ci-inventory crates/ci/src/verified_inventory.rs
+prove verify.ci-downloads-tests crates/ci-tests/tests/verified_download.rs
