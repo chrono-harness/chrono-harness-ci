@@ -24,10 +24,9 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
+use vstd::view::DeepView;
 
 verus! {
 
@@ -40,7 +39,7 @@ pub open spec fn optional_text_is(value: Option<&str>, expected: &str) -> bool {
 pub fn text_is(value: Option<&str>, expected: &str) -> (same: bool)
     ensures same == optional_text_is(value, expected),
 {
-    match value { Some(value) => identifiers::equal_text(value, expected), None => false }
+    match value { Some(value) => <&str>::exec_eq(value, expected), None => false }
 }
 
 pub open spec fn nonterminal(status: Option<&str>) -> bool {
@@ -101,7 +100,13 @@ pub fn observed_field_equal(first: Option<&[u8]>, second: Option<&[u8]>) -> (sam
 {
     match (first,second) {
         (None,None) => true,
-        (Some(first),Some(second)) => identifiers::equal_bytes(first,second),
+        (Some(first),Some(second)) => {
+            proof {
+                assert(first.deep_view() =~= first@);
+                assert(second.deep_view() =~= second@);
+            }
+            <&[u8]>::exec_eq(first,second)
+        },
         _ => false,
     }
 }
@@ -127,7 +132,7 @@ pub fn native_job_binding(fields: &[(Option<&[u8]>, Option<&[u8]>)]) -> (same: b
 pub fn delivery_mode(schema: &str, push_branches: usize) -> (valid: bool)
     ensures valid == (schema@ == "chrono-github-release/v2"@ && push_branches == 0),
 {
-    identifiers::equal_text(schema,"chrono-github-release/v2") && push_branches == 0
+    <&str>::exec_eq(schema,"chrono-github-release/v2") && push_branches == 0
 }
 
 pub fn delivery_nonempty(value: &str) -> (valid: bool)
@@ -147,7 +152,7 @@ pub fn publisher_index(jobs: &[&str], publisher: &str) -> (index: Option<usize>)
         invariant i <= jobs.len(), forall|j: int| 0 <= j < i ==> jobs@[j]@ != publisher@,
         decreases jobs.len() - i,
     {
-        if identifiers::equal_text(jobs[i],publisher) { return Some(i); }
+        if <&str>::exec_eq(jobs[i],publisher) { return Some(i); }
         i += 1;
     }
     None
@@ -179,13 +184,13 @@ pub fn cache_save_event_guard(push_only: bool) -> (guard: &'static str)
 pub fn valid_download_config(schema: &str, entries: usize) -> (valid: bool)
     ensures valid == (schema@ == "chrono-github-downloads/v1"@ && entries > 0),
 {
-    identifiers::equal_text(schema, "chrono-github-downloads/v1") && entries > 0
+    <&str>::exec_eq(schema, "chrono-github-downloads/v1") && entries > 0
 }
 
 pub fn valid_download_environment(key: &str) -> (valid: bool)
     ensures valid == (key@ == "CARGO_HOME"@ || key@ == "RUSTUP_HOME"@),
 {
-    identifiers::equal_text(key, "CARGO_HOME") || identifiers::equal_text(key, "RUSTUP_HOME")
+    <&str>::exec_eq(key, "CARGO_HOME") || <&str>::exec_eq(key, "RUSTUP_HOME")
 }
 
 pub open spec fn download_entry(
@@ -230,8 +235,8 @@ pub fn valid_download_artifact(
 {
     match (path, owner, is_tracked, kind) {
         (Some(path), Some(owner), Some(false), Some(kind)) =>
-            identifiers::equal_text(path, expected_path) && identifiers::equal_text(owner, expected_owner)
-                && !identifiers::equal_text(kind, "execution-evidence"),
+            <&str>::exec_eq(path, expected_path) && <&str>::exec_eq(owner, expected_owner)
+                && !<&str>::exec_eq(kind, "execution-evidence"),
         _ => false,
     }
 }
@@ -271,7 +276,7 @@ pub fn valid_cache_registry(schema: Option<&str>, primary_checkout: bool) -> (va
     ensures valid <==> cache_registry(schema, primary_checkout),
 {
     match schema {
-        Some(schema) => identifiers::equal_text(schema, "chrono-cache/v2") && primary_checkout,
+        Some(schema) => <&str>::exec_eq(schema, "chrono-cache/v2") && primary_checkout,
         None => false,
     }
 }
@@ -318,7 +323,7 @@ pub fn cache_has_text(values: &[&str], target: &str) -> (found: bool)
             forall|j: int| 0 <= j < i ==> values@[j]@ != target@,
         decreases values.len() - i,
     {
-        if identifiers::equal_text(values[i], target) { return true; }
+        if <&str>::exec_eq(values[i], target) { return true; }
         i += 1;
     }
     false
@@ -344,7 +349,7 @@ pub fn cache_has_unique_text(values: &[&str]) -> (unique: bool)
                 forall|b: int| i < b < j ==> values@[i as int]@ != values@[b]@,
             decreases values.len() - j,
         {
-            if identifiers::equal_text(values[i], values[j]) { return false; }
+            if <&str>::exec_eq(values[i], values[j]) { return false; }
             j += 1;
         }
         i += 1;

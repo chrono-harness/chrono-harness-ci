@@ -1,10 +1,7 @@
 //! 编译 planner 之前恢复下载资料；执行和传输仍由原生 cache action 负责。
-#[cfg(verus_keep_ghost)]
-use super::identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -29,7 +26,7 @@ pub fn download_domain(use_layout: bool, files: usize) -> (domain: DownloadDomai
 pub fn saves_download(producer: &str, job: &str) -> (save: bool)
     ensures save == (producer@ == job@),
 {
-    identifiers::equal_text(producer, job)
+    <&str>::exec_eq(producer, job)
 }
 }
 
