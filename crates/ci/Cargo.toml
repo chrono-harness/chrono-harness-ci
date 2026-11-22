@@ -1,0 +1,28 @@
+[package]
+name = "chrono-ci"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+test = false
+doctest = false
+
+[[bin]]
+name = "chrono-ci"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runner.git", rev = "a1cff08f74d996d618372f20adc203d1b5904d50" }
+chrono-judge-ci = { git = "https://github.com/chrono-harness/chrono-harness-judge-ci.git", rev = "58091cc02f536b38d0766eca5c6b475c97ea4e20" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+verus_builtin_macros = "=0.0.0-2026-04-20-1748"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package.sha2]
+opt-level = 3

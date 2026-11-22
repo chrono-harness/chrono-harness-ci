@@ -1,0 +1,312 @@
+//! Native cache transport projection. Cache identities remain the planner's output.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn valid_cache_sources(builds: usize, program: bool, config: bool, direct_registry: bool) -> (valid: bool)
+    ensures valid == if builds == 0 { !program && !config && direct_registry }
+                     else { program && config && !direct_registry },
+{
+    if builds == 0 { !program && !config && direct_registry }
+    else { program && config && !direct_registry }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+use crate::{action, shell};
+#[cfg(not(verus_keep_ghost))]
+use chrono_harness::{decode, no_symlink_parents, relative_path};
+#[cfg(not(verus_keep_ghost))]
+use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
+use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct Config {
+    pub schema: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    pub restore_action: String,
+    pub save_action: String,
+    pub save_on_push_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<crate::downloads::Config>,
+    pub jobs: BTreeMap<String, Consumer>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[cfg(not(verus_keep_ghost))]
+pub struct Consumer {
+    pub need: String,
+    pub output_use: String,
+    pub prepare: Vec<String>,
+    pub consumer: String,
+    pub caches: Vec<String>,
+    /// Omitted preserves all-cache saving; an empty list is restore-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_caches: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub save_after_bootstrap: Vec<String>,
+}
+
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn validate(c: &Config, jobs: &BTreeSet<String>) -> Result<(), String> {
+    if c.schema != "chrono-github-cache/v1" || (c.jobs.is_empty() && c.downloads.is_none()) {
+        return Err("persistent cache requires nonempty chrono-github-cache/v1".into());
+    }
+    let registry = c
+        .downloads
+        .as_ref()
+        .and_then(|d| d.artifact_registry.as_ref());
+    if !valid_cache_sources(
+        c.jobs.len(),
+        c.program.is_some(),
+        c.config.is_some(),
+        registry.is_some(),
+    ) {
+        return Err("build caches need a planner and its config; download-only caches need their artifact registry".into());
+    }
+    for path in c.program.iter().chain(&c.config).chain(registry) {
+        relative_path(path)?;
+        if !path.starts_with(".chrono-harness/")
+            || path.contains(['\0', '\r', '\n'])
+            || path.contains("${{")
+        {
+            return Err("persistent cache paths must belong to host .chrono-harness".into());
+        }
+    }
+    action(&c.restore_action, "actions/cache/restore")?;
+    action(&c.save_action, "actions/cache/save")?;
+    if let Some(downloads) = &c.downloads {
+        crate::downloads::validate(downloads, jobs)?;
+    }
+    let mut saving_jobs = BTreeMap::new();
+    for (job, consumer) in &c.jobs {
+        let saves = consumer.save_caches.as_ref().unwrap_or(&consumer.caches);
+        let preparation: Vec<_> = consumer.prepare.iter().map(String::as_str).collect();
+        let caches: Vec<_> = consumer.caches.iter().map(String::as_str).collect();
+        let saved: Vec<_> = saves.iter().map(String::as_str).collect();
+        let after_bootstrap: Vec<_> = consumer
+            .save_after_bootstrap
+            .iter()
+            .map(String::as_str)
+            .collect();
+        if !crate::verified_literals::valid_cache_consumer(
+            jobs.contains(job),
+            &consumer.consumer,
+            consumer.need.trim(),
+            consumer.output_use.trim(),
+            &preparation,
+            &caches,
+            &saved,
+            &after_bootstrap,
+        ) {
+            return Err(format!("invalid persistent cache consumer for job {job}"));
+        }
+        for cache in saves {
+            if let Some(previous) = saving_jobs.insert(cache, job) {
+                return Err(format!(
+                    "E_CACHE_SAVE_OWNERSHIP: cache {cache} has multiple saving jobs: {previous}, {job}; select one writer with save_caches"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve references against the host's single cache registry before projecting.
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn validate_registry(root: &Path, c: Option<&Config>) -> Result<(), String> {
+    let Some(c) = c else {
+        return Ok(());
+    };
+    if let Some(downloads) = &c.downloads {
+        if let Some(path) = &downloads.artifact_registry {
+            return crate::downloads::validate_registry(root, downloads, path);
+        }
+    }
+    let path = c.config.as_deref().ok_or("missing build cache config")?;
+    let registry: Value =
+        decode(&fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?)?;
+    if !crate::verified_literals::valid_cache_registry(
+        registry["schema"].as_str(),
+        registry["require_primary_checkout"] == true,
+    ) {
+        return Err(
+            "native persistent cache needs the planner schema and explicit primary-checkout guard"
+                .into(),
+        );
+    }
+    let caches = registry["caches"]
+        .as_object()
+        .ok_or("persistent cache registry needs caches")?;
+    if let Some(downloads) = &c.downloads {
+        let path = registry["artifact_registry"]
+            .as_str()
+            .ok_or("download cache needs artifact registry")?;
+        crate::downloads::validate_registry(root, downloads, path)?;
+    }
+    for consumer in c.jobs.values() {
+        let selected = caches
+            .iter()
+            .filter(|(_, c)| {
+                c["consumers"]
+                    .as_array()
+                    .is_some_and(|ids| ids.iter().any(|id| id == &consumer.consumer))
+            })
+            .map(|(id, _)| id.as_str())
+            .collect::<BTreeSet<_>>();
+        if selected
+            != consumer
+                .caches
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+        {
+            return Err(format!(
+                "persistent cache references differ from consumer {}",
+                consumer.consumer
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(not(verus_keep_ghost))]
+pub(crate) fn project(
+    c: Option<&Config>,
+    job: &str,
+    body: String,
+    checkout_end: &str,
+    before: &str,
+    work: &str,
+    existing_work_id: Option<&str>,
+    existing_bootstrap_id: Option<&str>,
+    after: Option<&str>,
+) -> Result<String, String> {
+    let Some(c) = c else {
+        return Ok(body);
+    };
+    let body = crate::downloads::project(c, job, body, checkout_end)?;
+    let Some(consumer) = c.jobs.get(job) else {
+        return Ok(body);
+    };
+    let program = c.program.as_deref().ok_or("missing build cache program")?;
+    let config = c.config.as_deref().ok_or("missing build cache config")?;
+    let work_id = existing_work_id.unwrap_or("chrono_cache_work");
+    let bootstrap_id = existing_bootstrap_id.unwrap_or("chrono_cache_bootstrap");
+    if before == work && !consumer.save_after_bootstrap.is_empty() {
+        return Err("bootstrap cache saving requires a separate original bootstrap step".into());
+    }
+    let prepare = consumer
+        .prepare
+        .iter()
+        .map(|s| shell(s))
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Release commands own their output directory; preparation stays in state.
+    let plan_path = format!(
+        ".chrono-harness/state/cache/{}/plan.json",
+        consumer.consumer
+    );
+    let mut prefix = format!(
+        "      - name: Prepare registered caches\n        id: chrono_cache_plan\n        shell: bash\n        run: |\n          {prepare}\n          {} plan --host-root . --config {} --consumer {} --plan-output {} --github-output \"$GITHUB_OUTPUT\"\n",
+        shell(program),
+        shell(config),
+        shell(&consumer.consumer),
+        shell(&plan_path)
+    );
+    let mut suffix = String::new();
+    // Compact references keep large native workflows within the provider limit.
+    // Registry validation guarantees the same selected set as the planner.
+    let selected: BTreeSet<_> = consumer.caches.iter().collect();
+    let saves = consumer.save_caches.as_ref().unwrap_or(&consumer.caches);
+    let event_guard = crate::verified_literals::cache_save_event_guard(c.save_on_push_only);
+    for (index, id) in selected.into_iter().enumerate() {
+        let key = format!("cache_{index}");
+        let step = &key;
+        prefix.push_str(&format!("      - name: Restore registered cache {id}\n        id: {step}_restore\n        continue-on-error: true\n        uses: {}\n        with:\n          key: ${{{{ steps.chrono_cache_plan.outputs.{key}_key }}}}\n          path: ${{{{ steps.chrono_cache_plan.outputs.{key}_paths }}}}\n          restore-keys: ${{{{ steps.chrono_cache_plan.outputs.{key}_restore }}}}\n          fail-on-cache-miss: false\n", c.restore_action));
+        if !saves.contains(id) {
+            continue;
+        }
+        let producer_step = if consumer.save_after_bootstrap.contains(id) {
+            bootstrap_id
+        } else {
+            work_id
+        };
+        suffix.push_str(&format!("      - name: Save registered cache {id}\n        id: {step}_save\n        if: ${{{{ {event_guard}always() && !cancelled() && steps.chrono_cache_plan.outcome == 'success' && (steps.{producer_step}.outcome == 'success' || (steps.chrono_cache_plan.outputs.{key}_save_on_failure == 'true' && steps.{producer_step}.outcome == 'failure')) && steps.{step}_restore.outputs.cache-matched-key != steps.chrono_cache_plan.outputs.{key}_key && (steps.chrono_cache_plan.outputs.{key}_verification != 'producer-manifest/v1' || steps.chrono_cache_seal.outputs.{key}_sealed == 'true') }}}}\n        continue-on-error: true\n        uses: {}\n        with:\n          key: ${{{{ steps.chrono_cache_plan.outputs.{key}_key }}}}\n          path: ${{{{ steps.chrono_cache_plan.outputs.{key}_paths }}}}\n", c.save_action));
+    }
+    prefix.push_str(&format!("      - name: Recover failed cache restores\n        if: ${{{{ steps.chrono_cache_plan.outputs.cache_recovery == 'discard-failed-host-restores' }}}}\n        shell: bash\n        env:\n          CHRONO_CACHE_RESTORE_STEPS: ${{{{ toJSON(steps) }}}}\n        run: |\n          {} recover --host-root . --config {} --plan {} --steps-env CHRONO_CACHE_RESTORE_STEPS\n", shell(program), shell(config), shell(&plan_path)));
+    let saves_arg = consumer
+        .save_caches
+        .as_ref()
+        .map(|saves| {
+            format!(
+                " --save-caches {}",
+                shell(&serde_json::to_string(saves).unwrap())
+            )
+        })
+        .unwrap_or_default();
+    let bootstrap_seal_arg = if consumer.save_after_bootstrap.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " --bootstrap {bootstrap_id} --save-after-bootstrap {}",
+            shell(&serde_json::to_string(&consumer.save_after_bootstrap).unwrap())
+        )
+    };
+    let seal = format!(
+        "      - name: Seal producer cache contents\n        id: chrono_cache_seal\n        if: ${{{{ {event_guard}always() && !cancelled() && steps.chrono_cache_plan.outputs.cache_content_verification == 'producer-manifest/v1' }}}}\n        shell: bash\n        env:\n          CHRONO_CACHE_PRODUCER_STEPS: ${{{{ toJSON(steps) }}}}\n        run: |\n          {} seal --host-root . --config {} --plan {} --steps-env CHRONO_CACHE_PRODUCER_STEPS --work {}{bootstrap_seal_arg}{saves_arg} --github-output \"$GITHUB_OUTPUT\"\n",
+        shell(program),
+        shell(config),
+        shell(&plan_path),
+        shell(work_id)
+    );
+    suffix.insert_str(0, &seal);
+    let marker = format!("      - name: {before}\n");
+    let work_marker = format!("      - name: {work}\n");
+    if body.matches(&marker).count() != 1 || body.matches(&work_marker).count() != 1 {
+        return Err("persistent cache requires one original bootstrap/work step".into());
+    }
+    let mut body = if existing_work_id.is_none() {
+        body.replacen(
+            &work_marker,
+            &format!("{work_marker}        id: {work_id}\n"),
+            1,
+        )
+    } else {
+        body
+    };
+    if !consumer.save_after_bootstrap.is_empty() && existing_bootstrap_id.is_none() {
+        body = body.replacen(
+            &marker,
+            &format!("{marker}        id: chrono_cache_bootstrap\n"),
+            1,
+        );
+    }
+    body = body.replacen(&marker, &format!("{prefix}{marker}"), 1);
+    if let Some(after) = after {
+        let marker = format!("      - name: {after}\n");
+        if body.matches(&marker).count() != 1 {
+            return Err("persistent cache requires one original evidence step".into());
+        }
+        body = body.replacen(&marker, &format!("{suffix}{marker}"), 1);
+    } else {
+        body.push_str(&suffix);
+    }
+    Ok(body)
+}
