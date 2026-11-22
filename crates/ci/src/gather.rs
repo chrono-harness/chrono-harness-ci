@@ -501,12 +501,12 @@ fn inner(
     if context["canonical_argv"] != json!(canonical) {
         return Err("collection command context mismatch".into());
     }
-    let stream_profile = if c.schema == units::SCHEMA {
+    let retained_streams = if c.schema == units::SCHEMA {
         let profile =
             chrono_harness::load_config(&no_symlink_parents(root, &c.collection.check_config)?)?;
-        chrono_harness::units::reference_publication(&profile)?.then_some(profile)
+        chrono_harness::units::reference_publication(&profile)?
     } else {
-        None
+        false
     };
     let completed = parent_units(root, c, repository, &context, transport)?;
     let mut reports = vec![];
@@ -594,40 +594,20 @@ fn inner(
                 "unit {unit} artifact differs from original production output"
             ));
         }
-        if let Some(profile) = &stream_profile {
-            let limits: chrono_judge_ci::CollectionLimits = profile
-                .policy
-                .get("collection_limits")
-                .cloned()
-                .map(serde_json::from_value)
-                .transpose()
-                .map_err(|e| e.to_string())?
-                .unwrap_or_default();
-            let bytes = chrono_harness::units::read_bounded(
-                root,
-                &downloaded(&registered[&unit].report_path)?,
-                limits.report_bytes,
-            )?;
-            let mapping = chrono_harness::prepared::ArtifactTransport {
-                source_directory: w.artifact_directory.clone(),
-                directory: format!("{destination}/"),
-            };
-            chrono_judge_ci::unit_originals(
-                root,
-                profile,
-                &unit,
-                &bytes,
-                Some(&mapping),
-                |original, limit| {
-                    let path = chrono_harness::prepared::original_path(original, Some(&mapping))?;
-                    chrono_harness::units::read_bounded(root, &path, limit)
-                },
-            )?;
-            transport
+        if retained_streams {
+            let budget = transport
                 .acquisition
                 .as_ref()
-                .ok_or("artifact budget missing")?
-                .remaining()?;
+                .ok_or("artifact budget missing")?;
+            let digest = &run["production"]["report_sha256"];
+            let query = json!({"operation":"unit-originals","profile_sha256":context["check_config_sha256"],
+                "unit":unit,"report":{"path":registered[&unit].report_path,"sha256":digest},
+                "transport":{"source_directory":w.artifact_directory,"directory":format!("{destination}/")}});
+            let receipt = super::requirements::request(root, c, query, Some(budget.remaining()?))?;
+            if receipt["unit"] != unit || receipt["report_sha256"] != *digest {
+                return Err(format!("unit {unit} original report receipt mismatch"));
+            }
+            budget.remaining()?;
         }
         let unit_context: Value = decode(
             &fs::read(no_symlink_parents(root, &downloaded(&w.context_path)?)?)
