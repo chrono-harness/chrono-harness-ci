@@ -6,4 +6,4 @@
 
 [固定来源](https://github.com/ChronoAIProject/chrono-harness/tree/5f6892dfa2f73675a84e4ebdc3b06eb83b824d6e/crates/ci)
 
-使用执行单元的宿主还须安装支持 `requirements-v1` 的 `chrono-judge-ci`。宿主通过自己的包管理器固定版本和校验值。默认从 PATH 解析该命令，也可以在单元工作流配置的顶层以 `requirements_program` 指定安装位置，例如 `.chrono-harness/bin/chrono-judge-ci`。scoped 和 full 的检测、汇总都使用这个查询入口。普通工作流的生成和核对可单独运行。
+使用执行单元的宿主还须安装支持 `requirements-v1` 的 `chrono-judge-ci`。宿主通过自己的包管理器固定版本和校验值。scoped 默认使用检查配置中登记的判官程序，full 默认从 PATH 解析 chrono-judge-ci。自定义判官或安装位置可在单元工作流配置的顶层以 `requirements_program` 指定安装位置，例如 `.chrono-harness/bin/chrono-judge-ci`。scoped 和 full 的检测、汇总都使用这个查询入口。普通工作流的生成和核对可单独运行。
