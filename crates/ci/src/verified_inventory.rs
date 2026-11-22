@@ -14,10 +14,7 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
-#[cfg(verus_keep_ghost)]
-extern crate chrono_identifiers as identifiers;
-#[cfg(not(verus_keep_ghost))]
-use chrono_harness::verified_identifiers as identifiers;
+use vstd::contrib::exec_spec::ExecSpecEq;
 
 verus! {
 
@@ -66,7 +63,7 @@ pub fn same_name_sequence(first: &[String], second: &[String]) -> (same: bool)
             forall|j: int| 0 <= j < i ==> first@[j]@ == second@[j]@,
         decreases first.len() - i,
     {
-        if !identifiers::equal_text(first[i].as_str(), second[i].as_str()) { return false; }
+        if !<&str>::exec_eq(first[i].as_str(), second[i].as_str()) { return false; }
         i += 1;
     }
     true
