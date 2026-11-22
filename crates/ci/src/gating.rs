@@ -448,25 +448,15 @@ pub(crate) fn requirements(
     candidate: String,
     initial: bool,
 ) -> Result<Value, String> {
-    if c.schema == units::FULL_SCHEMA {
+    let query = if c.schema == units::FULL_SCHEMA {
         if initial {
             return Err("full scheduling requires DELTA endpoints; full initial inventory is a separate contract".into());
         }
-        chrono_judge_ci::full_scheduling_requirements(
-            root,
-            &c.collection.check_config,
-            base.as_deref().ok_or("full scheduling base missing")?,
-            &candidate,
-        )
+        json!({"operation":"full-schedule","base":base.ok_or("full scheduling base missing")?,"candidate":candidate})
     } else {
-        chrono_judge_ci::scheduling_requirements(
-            root,
-            &c.collection.check_config,
-            base,
-            candidate,
-            initial,
-        )
-    }
+        json!({"operation":"schedule","base":base,"candidate":candidate,"initial":initial})
+    };
+    super::requirements::request(root, c, query, None)
 }
 
 #[cfg(not(verus_keep_ghost))]

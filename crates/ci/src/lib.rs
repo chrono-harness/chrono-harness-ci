@@ -43,6 +43,8 @@ pub mod migrate;
 #[cfg(not(verus_keep_ghost))]
 pub mod release;
 #[cfg(not(verus_keep_ghost))]
+mod requirements;
+#[cfg(not(verus_keep_ghost))]
 pub mod startup;
 #[cfg(not(verus_keep_ghost))]
 pub mod units;

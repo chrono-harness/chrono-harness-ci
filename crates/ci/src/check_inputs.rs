@@ -31,55 +31,28 @@ fn local_manifest(
         )?;
         json!({"runner_sha256":file_identity(&no_symlink_parents(&req.host_root,&c.collection.runner)?)?.0,"judge_sha256":file_identity(&judge)?.0})
     };
-    let (requirements, report_limit) = if full {
+    let (query, report_limit) = if full {
         let cfg = chrono_harness::load_selected_config(&req.host_root, &req.profile)?;
         let limit = cfg["execution_units"]["collection_limits"]["report_bytes"]
             .as_u64()
             .ok_or("full report bound")?;
-        let requirements = chrono_judge_ci::full_collection_requirements_with_inputs(
-            &req.host_root,
-            &req.profile,
-            p,
-            &|conversion_units| {
-                let mut originals = FullManifest {
-                    schema: "chrono-full-collection/v1".into(),
-                    reports: vec![],
-                };
-                for unit in conversion_units {
-                    let input = registered
-                        .get(unit)
-                        .ok_or("migration unit missing provider registration")?;
-                    let raw = chrono_harness::units::read_bounded(
-                        &req.host_root,
-                        &input.report_path,
-                        limit,
-                    )?;
-                    originals.reports.push(FullReportInput {
-                        unit: unit.clone(),
-                        path: input.report_path.clone(),
-                        sha256: sha256(&raw),
-                        runner_sha256: None,
-                        judge_sha256: None,
-                        artifacts: None,
-                    });
-                }
-                Ok(originals)
-            },
-        )?;
-        (requirements, limit)
+        let context = p
+            .context
+            .as_ref()
+            .ok_or("full collection context missing")?;
+        (
+            json!({"operation":"full-collect","context":context.path,"scope":p.scope,
+            "base":p.base.as_deref().ok_or("full base missing")?,"candidate":p.candidate}),
+            limit,
+        )
     } else {
         (
-            chrono_judge_ci::collection_requirements(
-                &req.host_root,
-                &req.profile,
-                &c.gather.manifest_path,
-                p.base.clone(),
-                p.candidate.clone(),
-                p.initial,
-            )?,
+            json!({"operation":"collect","manifest":c.gather.manifest_path,"base":p.base,
+            "candidate":p.candidate,"initial":p.initial}),
             64 * 1024 * 1024,
         )
     };
+    let requirements = super::requirements::request(&req.host_root, c, query, None)?;
     let required: Vec<String> = serde_json::from_value(requirements["required_units"].clone())
         .map_err(|e| e.to_string())?;
     let mut reports = vec![];

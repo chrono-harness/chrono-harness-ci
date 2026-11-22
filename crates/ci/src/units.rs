@@ -25,6 +25,8 @@ fn full_contexts_present<'de, D: serde::Deserializer<'de>>(
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requirements_program: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persistent_cache: Option<super::cache::Config>,
     pub job_gating: super::gating::Config,
     #[serde(

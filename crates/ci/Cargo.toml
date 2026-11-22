@@ -17,7 +17,6 @@ bench = false
 [dependencies]
 vstd = "=0.0.0-2026-04-20-1748"
 chrono-harness = { git = "https://github.com/chrono-harness/chrono-harness-runner.git", rev = "a1cff08f74d996d618372f20adc203d1b5904d50" }
-chrono-judge-ci = { git = "https://github.com/chrono-harness/chrono-harness-judge-ci.git", rev = "58091cc02f536b38d0766eca5c6b475c97ea4e20" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 verus_builtin_macros = "=0.0.0-2026-04-20-1748"
