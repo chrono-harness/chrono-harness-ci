@@ -61,6 +61,7 @@ name = "chrono-ci-tests"
 version = "0.1.0"
 dependencies = [
  "chrono-ci",
+ "tempfile",
  "verus_builtin_macros",
 ]
 
