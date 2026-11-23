@@ -338,7 +338,7 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
         .map(|b| json!({"id":b.id,"sha256":b.sha256}))
         .collect();
     Ok(
-        json!({"runner_sha256":file_identity(&no_symlink_parents(root,runner)?)?.0,"judge_sha256":chrono_harness::wire::digest(&pins)?,"judges":pins}),
+        json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":chrono_harness::wire::digest(&pins)?,"judges":pins}),
     )
 }
 /// Preserve caller context bytes separately from transport observations. Does not judge its policy.

@@ -29,7 +29,7 @@ fn local_manifest(
             &profile.judge.program,
             profile.judge.env.get("PATH").map(String::as_str),
         )?;
-        json!({"runner_sha256":file_identity(&no_symlink_parents(&req.host_root,&c.collection.runner)?)?.0,"judge_sha256":file_identity(&judge)?.0})
+        json!({"runner_sha256":units::installed_runner_sha256(&req.host_root, &c.collection.runner)?,"judge_sha256":file_identity(&judge)?.0})
     };
     let (query, report_limit) = if full {
         let cfg = chrono_harness::load_selected_config(&req.host_root, &req.profile)?;

@@ -12,3 +12,10 @@ verus_builtin_macros = "=0.0.0-2026-04-20-1748"
 [[test]]
 name = "verified_download"
 path = "tests/verified_download.rs"
+
+[[test]]
+name = "installed_runner"
+path = "tests/installed_runner.rs"
+
+[dev-dependencies]
+tempfile = "3"

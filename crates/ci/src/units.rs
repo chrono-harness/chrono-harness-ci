@@ -8,6 +8,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const SCHEMA: &str = "chrono-github-units/v1";
 pub const FULL_SCHEMA: &str = "chrono-github-units/v2";
+
+/// Hash the configured runner, including a file linked to the host's package manager.
+/// Parent directories are part of the host checkout and must be real directories.
+pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
+    chrono_harness::relative_path(runner)?;
+    let path = Path::new(runner);
+    if let Some(parent) = path
+        .parent()
+        .and_then(Path::to_str)
+        .filter(|p| !p.is_empty())
+    {
+        no_symlink_parents(root, parent)?;
+    }
+    Ok(file_identity(&root.join(path))?.0)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullContexts {
@@ -467,7 +483,7 @@ fn prepare_scope(
     }
     let pins = if let Some(judge) = &profile.judge {
         let judge = chrono_harness::resolve_program(root, &judge.program, None)?;
-        json!({"runner_sha256":file_identity(&root.join(&w.runner))?.0,"judge_sha256":file_identity(&judge)?.0})
+        json!({"runner_sha256":installed_runner_sha256(root, &w.runner)?,"judge_sha256":file_identity(&judge)?.0})
     } else {
         super::full::executable_pins(root, &w.check_config, &w.runner)?
     };
