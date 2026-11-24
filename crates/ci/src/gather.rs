@@ -103,17 +103,14 @@ impl<'a> Transport<'a> {
             output_limit_bytes: output_limit,
         };
         let p = crate::observed::run(self.root, &self.runner, &spec, &[], &self.digest, remaining)?;
-        // Credentials are explicitly omitted, while the original nonsecret process bytes and environment digest remain.
-        let env: BTreeMap<_, _> = spec
-            .env
-            .iter()
-            .filter(|(k, _)| {
-                k.as_str() != "CHRONO_PROCESS_FDS"
-                    && !self.config.credential_environment.contains(k)
-            })
-            .collect();
+        let mut observed_environment = spec.env;
+        observed_environment.remove("CHRONO_PROCESS_FDS");
+        if chrono_harness::wire::digest(&observed_environment)? != p.environment_digest {
+            return Err("transport environment differs from the observed command".into());
+        }
+        observed_environment.retain(|key, _| !self.config.credential_environment.contains(key));
         self.observations.push(json!({"argv":p.argv,"cwd":p.cwd,"executable":p.executable,"sha256":p.sha256,
-            "environment":env,"omitted_credentials":self.config.credential_environment,"original_environment_digest":p.environment_digest,
+            "environment":observed_environment,"omitted_credentials":self.config.credential_environment,"original_environment_digest":p.environment_digest,
             "stdin_sha256":sha256(&[]),"stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
             "stdout_sha256":p.stdout_sha256,"stderr_sha256":p.stderr_sha256,"exit_code":p.exit_code,"failure":p.failure}));
         if let Some(budget) = &mut self.acquisition {
