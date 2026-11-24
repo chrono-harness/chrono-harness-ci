@@ -170,6 +170,9 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         Projection::Units(c) => c.collection.runner,
         Projection::Full(c) => c.runner,
         Projection::Check(c) => c.runner,
+        Projection::CacheAction(_) => {
+            return Err("native cache action cannot produce runner check inputs".into());
+        }
         Projection::Release(_) => {
             return Err("release configuration cannot produce check inputs".into());
         }

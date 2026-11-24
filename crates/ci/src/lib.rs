@@ -34,6 +34,8 @@ use std::path::{Path, PathBuf};
 #[cfg(not(verus_keep_ghost))]
 pub mod cache;
 #[cfg(not(verus_keep_ghost))]
+mod cache_action;
+#[cfg(not(verus_keep_ghost))]
 mod check_inputs;
 #[cfg(not(verus_keep_ghost))]
 pub mod downloads;
@@ -190,6 +192,7 @@ pub fn load(path: &Path) -> Result<Config, String> {
 enum Projection {
     Units(units::Config),
     Check(Config),
+    CacheAction(cache_action::Config),
     Full(full::Config),
     Release(release::Config),
 }
@@ -213,6 +216,8 @@ fn decode_projection(bytes: &[u8]) -> Result<Projection, String> {
         Some(release::SCHEMA | release::UNITS_SCHEMA)
     ) {
         Ok(Projection::Release(release::decode_config(bytes)?))
+    } else if value["schema"] == cache_action::SCHEMA {
+        Ok(Projection::CacheAction(decode(bytes)?))
     } else if matches!(value["schema"].as_str(), Some(full::SCHEMA)) {
         let c = decode(bytes)?;
         full::validate(&c)?;
@@ -589,6 +594,7 @@ pub fn generate(root: &Path, config_path: &str, verify: bool) -> Result<bool, St
     relative_path(config_path)?;
     let c = match load_projection(&no_symlink_parents(root, config_path)?)? {
         Projection::Check(c) => c,
+        Projection::CacheAction(c) => return cache_action::generate(root, config_path, &c, verify),
         Projection::Units(c) => return units::generate(root, config_path, &c, verify),
         Projection::Full(c) => return full::generate(root, config_path, &c, verify),
         Projection::Release(c) => {
@@ -628,6 +634,12 @@ pub fn generate(root: &Path, config_path: &str, verify: bool) -> Result<bool, St
 pub fn init(root: &Path, input: &Path) -> Result<bool, String> {
     let incoming = match load_projection(input)? {
         Projection::Check(c) => c,
+        Projection::CacheAction(_) => {
+            return Err(
+                "register the native cache action under .chrono-harness/ci/ and use generate"
+                    .into(),
+            );
+        }
         Projection::Units(c) => return units::init(root, c),
         Projection::Full(c) => return full::init(root, c),
         Projection::Release(c) => return release::init(root, c),

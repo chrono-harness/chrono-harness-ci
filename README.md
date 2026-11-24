@@ -11,3 +11,5 @@
 本地收集会重新读取已安装 runner 的字节，为单元报告核对 SHA-256。登记的 runner 文件可以是指向包管理器安装位置的符号链接，父目录须在本仓真实目录内。
 
 `chrono-ci` 和其专属测试以本仓清单独立构建。执行 Git 事件、准备检查输入、收集报告和核对测试清单时，CI 使用宿主选定的 `chrono-harness` 可执行程序。宿主启用滚动日志时，`chrono-diagnostics cli-events-v1` 接收 CI 进程的起止状态与诊断。CI 的工作流投影、单元选择和 GitHub 事件处理由本仓维护。
+
+独立仓库可以在现有 GitHub 作业中使用自己的原生检查命令和编译缓存。在 `.chrono-harness/ci/` 登记 `chrono-github-cache-actions/v1`，其中 `jobs.<job>.command` 是原命令的参数数组，`action_path` 是本仓 `.github/actions/<名称>/action.yml`，`persistent_cache` 采用现有 `chrono-github-cache/v1` 登记。运行 `chrono-ci generate --host-root . --config <登记路径>`，在工具已安装的 GitHub 作业中以 `uses: ./.github/actions/<名称>` 调用生成的 action。相同登记使用 `chrono-ci verify` 检查。重复保存者会在写任何 action 前报错，缓存目录由规划器核对。原生 action 的下载目录也作为规划器缓存登记。
