@@ -471,9 +471,7 @@ fn prepare_scope(
     let candidate = candidate_owned.as_str();
     let facts = event_git::EventGit::new(root, &w, candidate)?;
     for input in [path, w.check_config.as_str(), w.workflow_path.as_str()] {
-        if facts
-            .git(&["show", &format!("{candidate}:{input}")])?
-            .as_bytes()
+        if facts.show(candidate, input)?.as_bytes()
             != fs::read(root.join(input)).map_err(|e| e.to_string())?
         {
             return Err(format!(

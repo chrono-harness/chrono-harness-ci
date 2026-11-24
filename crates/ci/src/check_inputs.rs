@@ -413,16 +413,27 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             originals,
         }
     };
-    let facts = chrono_harness::facts::Reader::for_config(root, &req.host_config)?;
-    facts.verify_config(root, &p.candidate)?;
-    if facts.blob(root, &p.candidate, path)? != config_bytes {
+    let program = if matches!(
+        config["schema"].as_str(),
+        Some(units::SCHEMA | units::FULL_SCHEMA)
+    ) {
+        config["collection"]["runner"].as_str()
+    } else {
+        config["runner"].as_str()
+    }
+    .ok_or("CI producer runner missing")?;
+    let facts =
+        crate::event_git::EventGit::open(root, program, &req.host_config, &p.candidate, false)?;
+    facts.verify_config(&p.candidate)?;
+    if facts.blob(&p.candidate, path)? != config_bytes {
         return Err("input producer configuration differs from candidate".into());
     }
     if let Some(binding) = &req.initial_profile {
-        if sha256(&facts.blob(root, &p.candidate, &binding.path)?) != binding.sha256 {
+        if sha256(&facts.blob(&p.candidate, &binding.path)?) != binding.sha256 {
             return Err("native initial profile differs from candidate".into());
         }
     }
+    facts.close()?;
     let mut p = p;
     let report = prepared::retain_original(
         root,

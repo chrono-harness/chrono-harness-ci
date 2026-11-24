@@ -45,6 +45,8 @@ pub mod release;
 #[cfg(not(verus_keep_ghost))]
 mod requirements;
 #[cfg(not(verus_keep_ghost))]
+mod runtime_session;
+#[cfg(not(verus_keep_ghost))]
 pub mod startup;
 #[cfg(not(verus_keep_ghost))]
 pub mod units;
@@ -735,7 +737,7 @@ fn prepare_policy_fixed(
                             } else {
                                 "configured push baseline requires refs/heads/... ref"
                             })?;
-                        facts.git(&["check-ref-format", reference])?;
+                        facts.check_ref(reference)?;
                         Some(reference)
                     } else {
                         None
@@ -803,7 +805,7 @@ fn prepare_policy_fixed(
         if let Some(base) = &base {
             facts.require_commit(base)?
         }
-        if facts.git(&["rev-parse", "HEAD"])?.trim() != candidate {
+        if facts.head()?.trim() != candidate {
             return Err("checkout is not exact event candidate".into());
         }
         if initial && !facts.parents(&candidate)?.is_empty() {
@@ -819,7 +821,8 @@ fn prepare_policy_fixed(
     })();
     match result {
         Ok(mut context) => {
-            facts.record(&mut context);
+            facts.record(&mut context)?;
+            facts.close()?;
             Ok(context)
         }
         Err(error) => Err(facts.error(error)),

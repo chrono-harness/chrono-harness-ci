@@ -509,9 +509,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         c.collection.check_config.as_str(),
         c.collection.workflow_path.as_str(),
     ] {
-        if facts
-            .git(&["show", &format!("{candidate}:{input}")])?
-            .as_bytes()
+        if facts.show(candidate, input)?.as_bytes()
             != fs::read(root.join(input)).map_err(|e| e.to_string())?
         {
             return Err(format!(
@@ -520,10 +518,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         }
     }
     facts.require_commit(&revision)?;
-    let source = facts.git(&[
-        "show",
-        &format!("{revision}:{}", c.collection.workflow_path),
-    ])?;
+    let source = facts.show(&revision, &c.collection.workflow_path)?;
     if source.as_bytes()
         != fs::read(root.join(&c.collection.workflow_path)).map_err(|e| e.to_string())?
     {

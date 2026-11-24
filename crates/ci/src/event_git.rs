@@ -1,58 +1,84 @@
 //! Bound event acquisition; the selected reader owns process evidence.
 use crate::{Config, full_oid};
-use chrono_harness::facts::Reader;
 use serde_json::{Value, json};
 use std::path::Path;
 
-pub(crate) struct EventGit<'a> {
-    root: &'a Path,
-    reader: Reader,
+pub(crate) struct EventGit {
+    runtime: std::cell::RefCell<crate::runtime_session::Session>,
+    pub bound: bool,
 }
-impl<'a> EventGit<'a> {
-    pub(crate) fn new(root: &'a Path, c: &Config, candidate: &str) -> Result<Self, String> {
+impl EventGit {
+    pub(crate) fn open(
+        root: &Path,
+        program: &str,
+        config: &str,
+        candidate: &str,
+        observe_failure: bool,
+    ) -> Result<Self, String> {
+        crate::units::installed_runner_sha256(root, program)?;
+        let mut runtime =
+            crate::runtime_session::Session::open(root, &root.join(program), "git-facts-v1")?;
+        #[derive(serde::Deserialize)]
+        struct Header {
+            bound: bool,
+        }
+        let header:Header=runtime.call(json!({"mode":"config","config":config,"base":candidate,"candidate":candidate,"observe_failure":observe_failure}))?;
+        Ok(Self {
+            runtime: std::cell::RefCell::new(runtime),
+            bound: header.bound,
+        })
+    }
+    pub(crate) fn new(root: &Path, c: &Config, candidate: &str) -> Result<Self, String> {
         if !full_oid(candidate) {
             return Err("invalid full candidate OID".into());
         }
-        let path = c
+        let config = c
             .facts_config
             .as_deref()
             .ok_or("CI requires facts_config")?;
-        let reader = Reader::for_config(root, path)?;
-        if !reader.is_bound() {
+        let facts = Self::open(root, &c.runner, config, candidate, false)?;
+        if !facts.bound {
             return Err("CI requires a full v3 facts_config".into());
         }
-        reader.verify_config(root, candidate)?;
-        let facts = Self { root, reader };
-        if facts
-            .git(&["rev-parse", "HEAD"])
-            .map_err(|e| facts.error(e))?
-            .trim()
-            != candidate
-        {
+        facts.verify_config(candidate)?;
+        if facts.head().map_err(|e| facts.error(e))?.trim() != candidate {
             return Err(facts.error("checkout is not exact event candidate".into()));
         }
         Ok(facts)
     }
-    pub(crate) fn git(&self, args: &[&str]) -> Result<String, String> {
-        String::from_utf8(self.reader.git(self.root, args)?)
-            .map_err(|_| "git output not UTF-8".into())
+    fn request<T: serde::de::DeserializeOwned>(&self, request: Value) -> Result<T, String> {
+        self.runtime.borrow_mut().call(request)
+    }
+    pub(crate) fn head(&self) -> Result<String, String> {
+        self.request(json!({"op":"head"}))
+    }
+    pub(crate) fn check_ref(&self, reference: &str) -> Result<(), String> {
+        self.request(json!({"op":"check-reference","reference":reference}))
+    }
+    pub(crate) fn verify_config(&self, candidate: &str) -> Result<(), String> {
+        self.request(json!({"op":"verify-config","candidate":candidate}))
+    }
+    pub(crate) fn blob(&self, commit: &str, path: &str) -> Result<Vec<u8>, String> {
+        self.request(json!({"op":"blob-bytes","commit":commit,"path":path}))
+    }
+    pub(crate) fn show(&self, commit: &str, path: &str) -> Result<String, String> {
+        self.request(json!({"op":"show-text","commit":commit,"path":path}))
+    }
+    pub(crate) fn available(&self, commit: &str) -> Result<bool, String> {
+        self.request(json!({"op":"commit-available","commit":commit}))
+    }
+    pub(crate) fn fetch(&self, commit: &str, shallow: bool) -> Result<String, String> {
+        self.request(json!({"op":"fetch-commit","commit":commit,"shallow":shallow}))
     }
     pub(crate) fn require_commit(&self, oid: &str) -> Result<(), String> {
-        if !self.reader.commit_available(self.root, oid)? {
-            self.git(&[
-                "fetch",
-                "--no-tags",
-                "--depth=2",
-                "--filter=blob:none",
-                "origin",
-                oid,
-            ])?;
-            if !self.reader.commit_available(self.root, oid)? {
+        if !self.available(oid)? {
+            self.fetch(oid, true)?;
+            if !self.available(oid)? {
                 return Err("fetched commit remains missing".into());
             }
         }
         if self
-            .git(&["rev-parse", &format!("{oid}^{{commit}}")])?
+            .request::<String>(json!({"op":"resolve-commit","commit":oid}))?
             .trim()
             != oid
         {
@@ -61,8 +87,9 @@ impl<'a> EventGit<'a> {
         Ok(())
     }
     pub(crate) fn remote_baseline(&self, reference: &str) -> Result<String, String> {
-        self.git(&["check-ref-format", reference])?;
-        let observed = self.git(&["ls-remote", "--refs", "origin", reference])?;
+        self.check_ref(reference)?;
+        let observed: String =
+            self.request(json!({"op":"remote-reference","reference":reference}))?;
         let fields: Vec<_> = observed.split_whitespace().collect();
         if fields.len() != 2 || fields[1] != reference || !full_oid(fields[0]) {
             return Err(format!(
@@ -78,19 +105,10 @@ impl<'a> EventGit<'a> {
         base: Option<&str>,
         candidate: &str,
     ) -> Result<Vec<String>, String> {
-        let candidate = self.reader.tree(self.root, candidate)?;
-        Ok(match base {
-            Some(base) => {
-                chrono_harness::facts::delta(&self.reader.tree(self.root, base)?, &candidate)
-                    .into_iter()
-                    .map(|d| d.path)
-                    .collect()
-            }
-            None => candidate.keys().map(|path| path.text.clone()).collect(),
-        })
+        self.request(json!({"op":"changed-paths","base":base,"candidate":candidate}))
     }
-    pub(crate) fn parents(&self, candidate: &str) -> Result<Vec<String>, String> {
-        self.reader.parents(self.root, candidate)
+    pub(crate) fn parents(&self, commit: &str) -> Result<Vec<String>, String> {
+        self.request(json!({"op":"parents","commit":commit}))
     }
     pub(crate) fn pull_request_baseline(
         &self,
@@ -111,13 +129,26 @@ impl<'a> EventGit<'a> {
         }
         Ok(parents[0].clone())
     }
-    pub(crate) fn record(&self, context: &mut Value) {
-        context["git_facts"] = self.reader.observation();
+    pub(crate) fn close(self) -> Result<(), String> {
+        self.runtime.into_inner().close()
+    }
+    pub(crate) fn observation(&self) -> Result<Value, String> {
+        self.request(json!({"op":"observation"}))
+    }
+    pub(crate) fn record(&self, context: &mut Value) -> Result<(), String> {
+        context["git_facts"] = self.observation()?;
+        Ok(())
     }
     pub(crate) fn error(&self, message: String) -> String {
-        format!(
-            "E_CI_GIT: {}",
-            json!({"message":message,"git_facts":self.reader.observation()})
-        )
+        match self.observation() {
+            Ok(observation) => format!(
+                "E_CI_GIT: {}",
+                json!({"message":message,"git_facts":observation})
+            ),
+            Err(error) => format!(
+                "E_CI_GIT: {}",
+                json!({"message":message,"observation_error":error})
+            ),
+        }
     }
 }

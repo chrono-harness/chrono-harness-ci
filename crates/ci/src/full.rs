@@ -1,9 +1,7 @@
 //! Fixed full-governance context transport; the configured judges own admission.
 use super::{action, full_oid, output_preflight, scalar, shell, write_file};
 use chrono_harness::{
-    decode,
-    facts::Reader,
-    file_identity, no_symlink_parents, relative_path, sha256,
+    decode, file_identity, no_symlink_parents, relative_path, sha256,
     units::{self, Scope, overlap},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -362,33 +360,29 @@ pub fn prepare(
     if serde_json::to_value(c).map_err(|e| e.to_string())? != decode::<Value>(&source)? {
         return Err("full CI source differs from selected configuration".into());
     }
-    let facts = Reader::for_config_observed(root, &c.check_config).map_err(|e| {
-        format!(
-            "E_FULL_CI_GIT: {}",
-            json!({"message":e.message,"git_facts":e.observation})
-        )
-    })?;
-    if !facts.is_bound() {
+    let facts = crate::event_git::EventGit::open(root, &c.runner, &c.check_config, candidate, true)
+        .map_err(|error| format!("E_FULL_CI_GIT: {error}"))?;
+    if !facts.bound {
         return Err("full CI requires candidate full config v3 Git binding".into());
     }
     let result = (|| {
-        facts.verify_config(root, candidate)?;
-        if facts.git(root, &["rev-parse", "HEAD"])? != format!("{candidate}\n").as_bytes() {
+        facts.verify_config(candidate)?;
+        if facts.head()? != format!("{candidate}\n") {
             return Err("full CI checkout is not supplied candidate".into());
         }
-        if facts.blob(root, candidate, path)? != source {
+        if facts.blob(candidate, path)? != source {
             return Err("full CI source differs from fixed candidate".into());
         }
         // Acquisition never replaces or derives caller context fields.
         for oid in [base, workflow_revision] {
-            if !facts.commit_available(root, oid)? {
-                facts.git(root, &["fetch", "--no-tags", "origin", oid])?;
+            if !facts.available(oid)? {
+                facts.fetch(oid, false)?;
             }
-            if !facts.commit_available(root, oid)? {
+            if !facts.available(oid)? {
                 return Err("full CI fixed commit remains missing".into());
             }
         }
-        if facts.blob(root, workflow_revision, &c.workflow_path)? != render(c, path)?.as_bytes() {
+        if facts.blob(workflow_revision, &c.workflow_path)? != render(c, path)?.as_bytes() {
             return Err("full CI workflow revision differs from declared projection".into());
         }
         let report = json!({"schema":"chrono-full-ci-inputs/v1","status":"prepared",
@@ -400,7 +394,10 @@ pub fn prepare(
     let mut report: Value = result.map_err(|message: String| {
         format!(
             "E_FULL_CI_GIT: {}",
-            json!({"message":message,"git_facts":facts.observation()})
+            match facts.observation() {
+                Ok(observation) => json!({"message":message,"git_facts":observation}),
+                Err(error) => json!({"message":message,"observation_error":error}),
+            }
         )
     })?;
     let original = chrono_harness::prepared::retain_original(
@@ -412,7 +409,8 @@ pub fn prepare(
     report["context"]["current_path"] = json!(c.context_path);
     report["context"]["path"] = json!(original.path);
     report["originals"] = json!([original]);
-    report["git_facts"] = facts.observation();
+    report["git_facts"] = facts.observation()?;
+    facts.close()?;
     if fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())? != source {
         return Err("full CI source changed during preparation".into());
     }
