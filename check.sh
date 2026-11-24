@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-native_only=false
-if [[ ${1:-} == --native && $# -eq 1 ]]; then
-  native_only=true
-elif [[ $# -ne 0 ]]; then
+if [[ $# -eq 0 ]]; then
+  /bin/sh .chrono-harness/ci/install.sh
+  export PATH="$PWD/.chrono-harness/bin:$PATH"
+  export CHRONO_CHECK_SOURCE=${CHRONO_CHECK_SOURCE:-local}
+  exec .chrono-harness/bin/chrono-harness check
+fi
+if [[ $# -ne 1 || $1 != --native ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
@@ -37,23 +40,6 @@ chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_literal
   src/verified_inventory.rs src/inventory.rs src/full.rs src/cache_action.rs src/gather.rs ||
   coverage_failure "native library differs from required sources"
 
-if "$native_only"; then exit 0; fi
-
-verifier=$(command -v "${VERUS:-verus}") || coverage_failure "registered verifier was not found"
-
-prove() {
-  chrono-host-bootstrap run-compiler-proof "$scratch" "$1" "$verifier" "$2" ||
-    coverage_failure "$1: verifier failed"
-}
-
-admit_proof() {
-  local operation=$1
-  shift
-  chrono-host-bootstrap collect-compiler-proof "$scratch" "$operation" "$verifier" \
-    0.2026.04.24.f8e1704 f8e17045c4ac17a02e566b8997070f2eecc255be "$@" ||
-    coverage_failure "$operation: required proof result was not admitted"
-}
-
 src=crates/ci/src
 tests=crates/ci-tests/tests
 include=$tests/../../ci/src
@@ -65,26 +51,19 @@ downloads_tests_operation=verify.ci-downloads-tests
 literals_tests_operation=verify.ci-literals-tests
 inventory_tests_operation=verify.ci-inventory-tests
 
-prove "$literals_operation" "$src/verified_literals.rs"
-prove "$downloads_operation" "$src/verified_download.rs"
-prove "$inventory_operation" "$src/verified_inventory.rs"
-prove "$downloads_tests_operation" "$tests/verified_download.rs"
-prove "$literals_tests_operation" "$tests/verified_literals.rs"
-prove "$inventory_tests_operation" "$tests/verified_inventory.rs"
-
-admit_proof "$literals_operation" "$src/verified_literals.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_operation.rlib" "$src/verified_literals.rs" \
   "$src/cache.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
   "$src/startup.rs"
-admit_proof "$downloads_operation" "$src/verified_download.rs"
-admit_proof "$inventory_operation" "$src/verified_inventory.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downloads_operation.rlib" "$src/verified_download.rs"
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$inventory_operation.rlib" "$src/verified_inventory.rs" \
   "$src/inventory.rs"
-admit_proof "$downloads_tests_operation" "$tests/verified_download.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downloads_tests_operation.rlib" "$tests/verified_download.rs" \
   "$include/verified_download.rs"
-admit_proof "$literals_tests_operation" "$tests/verified_literals.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
   "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
   "$include/verified_literals.rs" "$include/cache.rs" "$include/downloads.rs" "$include/gating.rs" \
   "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
   "$support/../worktree/support/diagnostic_copy.rs" "$support/startup.rs"
-admit_proof "$inventory_tests_operation" "$tests/verified_inventory.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$inventory_tests_operation.rlib" "$tests/verified_inventory.rs" \
   "$support/inventory.rs" "$include/verified_inventory.rs" "$include/inventory.rs"
