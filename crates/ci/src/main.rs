@@ -42,7 +42,13 @@ fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
         _ => {}
     }
-    let mut child = Command::new("chrono-diagnostics")
+    let local = root.join(".chrono-harness/bin/chrono-diagnostics");
+    let diagnostics = if local.is_file() {
+        local.as_path()
+    } else {
+        Path::new("chrono-diagnostics")
+    };
+    let mut child = Command::new(diagnostics)
         .arg("cli-events-v1")
         .arg(root)
         .args(["chrono-ci", operation])
