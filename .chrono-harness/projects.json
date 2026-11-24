@@ -1,0 +1,174 @@
+{
+  "schema_version": 2,
+  "status": "active",
+  "owners": [
+    "host",
+    "ci",
+    "ci-tests"
+  ],
+  "projects": [
+    {
+      "id": "ci",
+      "kind": "production",
+      "manifest": "crates/ci/Cargo.toml",
+      "lockfile": "crates/ci/Cargo.lock",
+      "root": "crates/ci",
+      "test_project": "ci-tests",
+      "actions": {
+        "verify_literals": {
+          "operation": "verify.ci-literals",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-literals.rlib,dep-info=.chrono-harness/state/verify.ci-literals.rlib.d",
+            "crates/ci/src/verified_literals.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-literals.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_download": {
+          "operation": "verify.ci-downloads",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-downloads.rlib,dep-info=.chrono-harness/state/verify.ci-downloads.rlib.d",
+            "crates/ci/src/verified_download.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-downloads.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_inventory": {
+          "operation": "verify.ci-inventory",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-inventory.rlib,dep-info=.chrono-harness/state/verify.ci-inventory.rlib.d",
+            "crates/ci/src/verified_inventory.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-inventory.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    },
+    {
+      "id": "ci-tests",
+      "kind": "test",
+      "manifest": "crates/ci-tests/Cargo.toml",
+      "lockfile": "crates/ci-tests/Cargo.lock",
+      "root": "crates/ci-tests",
+      "tests_for": "ci",
+      "actions": {
+        "execute": {
+          "operation": "ci.owner-check",
+          "tool": "bash",
+          "argv": [
+            "./check.sh",
+            "--native"
+          ]
+        },
+        "verify_download": {
+          "operation": "verify.ci-downloads-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-downloads-tests.rlib,dep-info=.chrono-harness/state/verify.ci-downloads-tests.rlib.d",
+            "crates/ci-tests/tests/verified_download.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-downloads-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_literals": {
+          "operation": "verify.ci-literals-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-literals-tests.rlib,dep-info=.chrono-harness/state/verify.ci-literals-tests.rlib.d",
+            "crates/ci-tests/tests/verified_literals.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-literals-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        },
+        "verify_inventory": {
+          "operation": "verify.ci-inventory-tests",
+          "tool": "verus",
+          "argv": [
+            "--crate-type=lib",
+            "--no-cheating",
+            "--no-external-by-default",
+            "--num-threads",
+            "2",
+            "--output-json",
+            "--compile",
+            "--emit=link=.chrono-harness/state/verify.ci-inventory-tests.rlib,dep-info=.chrono-harness/state/verify.ci-inventory-tests.rlib.d",
+            "crates/ci-tests/tests/verified_inventory.rs",
+            "-o",
+            ".chrono-harness/state/verify.ci-inventory-tests.rlib",
+            "-Zchecksum-hash-algorithm=sha256"
+          ],
+          "output_contract": {
+            "version": "0.2026.04.24.f8e1704",
+            "commit": "f8e17045c4ac17a02e566b8997070f2eecc255be"
+          }
+        }
+      },
+      "language": "rust"
+    }
+  ],
+  "scripts": []
+}
