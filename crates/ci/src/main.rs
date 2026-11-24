@@ -18,7 +18,7 @@ fn work(
         };
         decoded.push(value.to_string());
     }
-    match chrono_ci::dispatch(&decoded[1..]) {
+    match chrono_ci::dispatch(decoded.get(1..).unwrap_or_default()) {
         Ok(output) => {
             print!("{output}");
             Ok(0)
@@ -83,7 +83,9 @@ fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
 
 fn main() -> ExitCode {
     let arguments: Vec<_> = std::env::args_os().collect();
-    let root = arguments[1..]
+    let root = arguments
+        .get(1..)
+        .unwrap_or_default()
         .windows(2)
         .find(|p| p[0] == "--host-root")
         .map(|pair| Ok(PathBuf::from(&pair[1])))
