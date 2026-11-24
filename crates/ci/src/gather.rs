@@ -739,12 +739,13 @@ fn inner(
         &c.gather.manifest_path,
         &serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
     )?;
-    let manifest_original = json!(chrono_harness::prepared::retain_original(
-        root,
+    let mut retained = crate::preparation::Originals::open(root, &c.collection.runner)?;
+    let manifest_original = json!(retained.retain(
         &format!("{}preparation/", c.collection.artifact_directory),
         "manifest",
         &fs::read(&manifest_path).map_err(|e| e.to_string())?
     )?);
+    retained.close()?;
     Ok(
         json!({"status":"gathered-unjudged","base":context["base"],"candidate":candidate,"units":identities,"manifest_path":c.gather.manifest_path,"manifest_sha256":file_identity(&manifest_path)?.0,"manifest_original":manifest_original}),
     )
@@ -775,13 +776,15 @@ pub(super) fn gather(
         json!({"kind":"native-acquisition","result":result.as_ref().ok(),"error":result.as_ref().err(),"completion":"not-established"})
     )).transpose();
     let mut report = json!({"schema":"chrono-ci-gather/v1","repository":repository,"result":result.as_ref().ok(),"error":result.as_ref().err(),"storage_error":storage_result.as_ref().err(),"processes":transport.observations});
-    let gather_original = chrono_harness::prepared::retain_original(
-        root,
-        &format!("{}preparation/", c.collection.artifact_directory),
-        "native-gather",
-        &serde_json::to_vec(&report).map_err(|e| e.to_string())?,
-    )?
-    .path;
+    let mut retained = crate::preparation::Originals::open(root, &c.collection.runner)?;
+    let gather_original = retained
+        .retain(
+            &format!("{}preparation/", c.collection.artifact_directory),
+            "native-gather",
+            &serde_json::to_vec(&report).map_err(|e| e.to_string())?,
+        )?
+        .path;
+    retained.close()?;
     report["retained_report"] = json!(gather_original);
     if result.is_err() || storage_result.is_err() {
         if let Some(inventory) =

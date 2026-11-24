@@ -1,9 +1,10 @@
 //! The existing CI producer owns event preparation and declared local collection.
 use super::*;
+use crate::preparation::{
+    self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
+};
 use chrono_harness::{
-    file_identity,
-    prepared::{self, Context, InputRequest, PreparedCheck, Selection},
-    sha256,
+    file_identity, sha256,
     units::{FullManifest, FullReportInput, Manifest, ReportInput, Scope},
     wire,
 };
@@ -167,12 +168,24 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         return Err("check input request exceeds bound".into());
     }
     let req: InputRequest = decode(&raw)?;
-    req.validate()?;
     let root = &req.host_root;
+    if !root.is_absolute() {
+        return Err("invalid check input request/source/root".into());
+    }
     let config_bytes = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;
     let config: Value = decode(&config_bytes)?;
+    let program = if matches!(
+        config["schema"].as_str(),
+        Some(units::SCHEMA | units::FULL_SCHEMA)
+    ) {
+        config["collection"]["runner"].as_str()
+    } else {
+        config["runner"].as_str()
+    }
+    .ok_or("CI producer runner missing")?;
+    let mut retained_originals = Originals::open(root, program)?;
+    let dir = retained_originals.request_directory(&req)?;
     let mut originals = vec![];
-    let dir = prepared::retention_directory(&req);
     let p = if req.source == "local" {
         if req.selection != Selection::Collect {
             return Err("local CI producer only collects declared unit reports".into());
@@ -234,11 +247,13 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             let mut evidence = full::prepare(root, path, &c, bytes, &revision)?;
             let report_raw = fs::read(no_symlink_parents(root, &c.preparation_path)?)
                 .map_err(|e| e.to_string())?;
-            let original = prepared::retain_original(root, &dir, "full-inputs", &report_raw)?;
+            let original = retained_originals.retain(&dir, "full-inputs", &report_raw)?;
             evidence["preparation_original"] = json!(original);
             originals.push(original);
             let ctx = Context {
-                path: prepared::retain_original(root, &dir, "native-context", bytes)?.path,
+                path: retained_originals
+                    .retain(&dir, "native-context", bytes)?
+                    .path,
                 raw: bytes.to_vec(),
                 sha256: sha256(bytes),
                 semantic_digest: wire::digest(&decode::<Value>(bytes)?)?,
@@ -307,19 +322,19 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                 let retained = gathered["retained_report"]
                     .as_str()
                     .ok_or("gather original report missing")?;
-                let o = prepared::original(root, retained)?;
+                let o = retained_originals.identify(retained)?;
                 evidence["gather"] = json!(o);
                 originals.push(o);
                 let o: prepared::Original =
                     serde_json::from_value(gathered["result"]["manifest_original"].clone())
                         .map_err(|e| e.to_string())?;
-                prepared::read_original(root, &o, None)?;
+                retained_originals.verify(&o)?;
                 evidence["manifest"] = json!(o);
                 originals.push(o);
             }
             let context_raw =
                 fs::read(no_symlink_parents(root, &w.context_path)?).map_err(|e| e.to_string())?;
-            let o = prepared::retain_original(root, &dir, "native-context", &context_raw)?;
+            let o = retained_originals.retain(&dir, "native-context", &context_raw)?;
             evidence["context_original"] = json!(o);
             originals.push(o);
             let context = if let Some(contexts) = &c.full_contexts {
@@ -329,7 +344,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                 };
                 let raw = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;
                 let ctx = full::context_input(&raw)?;
-                let original = prepared::retain_original(root, &dir, "full-context", &raw)?;
+                let original = retained_originals.retain(&dir, "full-context", &raw)?;
                 Some(Context {
                     path: original.path,
                     sha256: sha256(&raw),
@@ -381,17 +396,17 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             let mut evidence = evidence;
             let context_raw =
                 fs::read(no_symlink_parents(root, &c.context_path)?).map_err(|e| e.to_string())?;
-            let o = prepared::retain_original(root, &dir, "native-context", &context_raw)?;
+            let o = retained_originals.retain(&dir, "native-context", &context_raw)?;
             evidence["context_original"] = json!(o);
             originals.push(o);
             (evidence, None, None)
         };
-        let payload = prepared::retain_original(root, &dir, "native-payload", &payload_raw)?;
+        let payload = retained_originals.retain(&dir, "native-payload", &payload_raw)?;
         evidence["payload"] = json!(payload);
         evidence["payload_input_path"] = json!(payload_path);
         originals.push(payload);
         if let Some(ctx) = &context {
-            originals.push(prepared::original(root, &ctx.path)?);
+            originals.push(retained_originals.identify(&ctx.path)?);
         }
         evidence["originals"] = json!(originals);
         PreparedCheck {
@@ -413,15 +428,6 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             originals,
         }
     };
-    let program = if matches!(
-        config["schema"].as_str(),
-        Some(units::SCHEMA | units::FULL_SCHEMA)
-    ) {
-        config["collection"]["runner"].as_str()
-    } else {
-        config["runner"].as_str()
-    }
-    .ok_or("CI producer runner missing")?;
     let facts =
         crate::event_git::EventGit::open(root, program, &req.host_config, &p.candidate, false)?;
     facts.verify_config(&p.candidate)?;
@@ -435,8 +441,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     }
     facts.close()?;
     let mut p = p;
-    let report = prepared::retain_original(
-        root,
+    let report = retained_originals.retain(
         &dir,
         "ci-inputs",
         &serde_json::to_vec(&p.evidence).map_err(|e| e.to_string())?,
@@ -448,7 +453,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     if let Some(current) = current {
         p.evidence["current_observation"] = current;
     }
-    req.validate()?;
-    prepared::validate_result(&req, &p)?;
+    retained_originals.validate_result(&req, &p)?;
+    retained_originals.close()?;
     Ok(serde_json::to_string(&p).map_err(|e| e.to_string())? + "\n")
 }

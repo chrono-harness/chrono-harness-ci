@@ -400,12 +400,13 @@ pub fn prepare(
             }
         )
     })?;
-    let original = chrono_harness::prepared::retain_original(
-        root,
+    let mut retained = crate::preparation::Originals::open(root, &c.runner)?;
+    let original = retained.retain(
         &format!("{}preparation/", c.artifact_directory),
         "native-context",
         context,
     )?;
+    retained.close()?;
     report["context"]["current_path"] = json!(c.context_path);
     report["context"]["path"] = json!(original.path);
     report["originals"] = json!([original]);
