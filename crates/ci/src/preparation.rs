@@ -19,13 +19,10 @@ impl Selection {
             Self::Collect => vec!["--collect".into()],
         }
     }
-    pub fn matches(&self, scope: &Option<chrono_harness::units::Scope>) -> bool {
+    pub fn matches(&self, scope: &Option<crate::units::Scope>) -> bool {
         match (self, scope) {
-            (Self::All, None)
-            | (Self::Collect, Some(chrono_harness::units::Scope::Collect { .. })) => true,
-            (Self::Unit { unit: a }, Some(chrono_harness::units::Scope::Unit { unit: b })) => {
-                a == b
-            }
+            (Self::All, None) | (Self::Collect, Some(crate::units::Scope::Collect { .. })) => true,
+            (Self::Unit { unit: a }, Some(crate::units::Scope::Unit { unit: b })) => a == b,
             _ => false,
         }
     }
@@ -74,7 +71,7 @@ pub struct PreparedCheck {
     pub candidate: String,
     pub initial: bool,
     pub context: Option<Context>,
-    pub scope: Option<chrono_harness::units::Scope>,
+    pub scope: Option<crate::units::Scope>,
     pub evidence: Value,
     pub originals: Vec<Original>,
 }
@@ -95,7 +92,8 @@ pub struct Original {
 pub(crate) struct Originals(Session);
 impl Originals {
     pub(crate) fn open(root: &Path, runner: &str) -> Result<Self, String> {
-        Session::open(root, &root.join(runner), "retained-artifacts-v1").map(Self)
+        let path = crate::units::installed_runner_path(root, runner)?;
+        Session::open(root, &path, "retained-artifacts-v1").map(Self)
     }
     pub(crate) fn request_directory(&mut self, request: &InputRequest) -> Result<String, String> {
         self.0

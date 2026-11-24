@@ -1,8 +1,9 @@
 //! Fixed full-governance context transport; the configured judges own admission.
 use super::{action, full_oid, output_preflight, scalar, shell, write_file};
+use crate::units::Scope;
 use chrono_harness::{
     decode, file_identity, no_symlink_parents, relative_path, sha256,
-    units::{self, Scope, overlap},
+    units::{self, overlap},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};

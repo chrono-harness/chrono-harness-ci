@@ -1,17 +1,37 @@
 //! Explicit units scheduled as jobs within one parent workflow.
 use super::*;
-use chrono_harness::{
-    file_identity,
-    units::{Scope, Unit},
-};
+use chrono_harness::file_identity;
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Scope {
+    Unit { unit: String },
+    Collect { manifest: String },
+}
+
+impl Scope {
+    pub(crate) fn short_argv(&self) -> Vec<String> {
+        match self {
+            Self::Unit { unit } => vec!["--unit".into(), unit.clone()],
+            Self::Collect { .. } => vec!["--collect".into()],
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Unit {
+    pub tests: Vec<String>,
+    pub report_path: String,
+}
 
 pub const SCHEMA: &str = "chrono-github-units/v1";
 pub const FULL_SCHEMA: &str = "chrono-github-units/v2";
 
-/// Hash the configured runner, including a file linked to the host's package manager.
+/// Locate the configured runner, including a file linked to the host's package manager.
 /// Parent directories are part of the host checkout and must be real directories.
-pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
+pub(crate) fn installed_runner_path(root: &Path, runner: &str) -> Result<PathBuf, String> {
     chrono_harness::relative_path(runner)?;
     let path = Path::new(runner);
     if let Some(parent) = path
@@ -21,7 +41,10 @@ pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, Stri
     {
         no_symlink_parents(root, parent)?;
     }
-    Ok(file_identity(&root.join(path))?.0)
+    Ok(root.join(path))
+}
+pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
+    Ok(file_identity(&installed_runner_path(root, runner)?)?.0)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

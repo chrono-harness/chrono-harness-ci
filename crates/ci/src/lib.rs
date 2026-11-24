@@ -349,11 +349,11 @@ pub fn render(c: &Config, config_path: &str) -> Result<String, String> {
 #[cfg(not(verus_keep_ghost))]
 fn render_header(
     c: &Config,
-    scope: Option<&chrono_harness::units::Scope>,
+    scope: Option<&crate::units::Scope>,
     read_actions: bool,
     marker: &str,
 ) -> String {
-    let manual_dispatch = if matches!(scope, Some(chrono_harness::units::Scope::Collect { .. })) {
+    let manual_dispatch = if matches!(scope, Some(crate::units::Scope::Collect { .. })) {
         ""
     } else {
         r#"  workflow_dispatch:
@@ -398,7 +398,7 @@ on:
 fn render_job(
     c: &Config,
     config_path: &str,
-    scope: Option<&chrono_harness::units::Scope>,
+    scope: Option<&crate::units::Scope>,
     artifact_prefix: &str,
     full_policy: bool,
 ) -> Result<String, String> {
@@ -419,12 +419,12 @@ fn render_job(
     let check = {
         let suffix = match scope {
             None => String::new(),
-            Some(chrono_harness::units::Scope::Unit { unit }) => {
+            Some(crate::units::Scope::Unit { unit }) => {
                 format!(" '--unit' {}", shell(unit))
             }
-            Some(chrono_harness::units::Scope::Collect { .. }) => " '--collect'".into(),
+            Some(crate::units::Scope::Collect { .. }) => " '--collect'".into(),
         };
-        let credentials = if matches!(scope, Some(chrono_harness::units::Scope::Collect { .. })) {
+        let credentials = if matches!(scope, Some(crate::units::Scope::Collect { .. })) {
             "          GH_TOKEN: ${{ github.token }}\n"
         } else {
             ""
@@ -486,8 +486,8 @@ fn render_job(
     };
     let rendered = if c.retention_delivery {
         let selected = match scope {
-            Some(chrono_harness::units::Scope::Unit { unit }) => unit.as_str(),
-            Some(chrono_harness::units::Scope::Collect { .. }) => "collect",
+            Some(crate::units::Scope::Unit { unit }) => unit.as_str(),
+            Some(crate::units::Scope::Collect { .. }) => "collect",
             None => "all",
         };
         format!(

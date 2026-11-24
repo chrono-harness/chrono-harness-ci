@@ -3,11 +3,8 @@ use super::*;
 use crate::preparation::{
     self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
 };
-use chrono_harness::{
-    file_identity, sha256,
-    units::{FullManifest, FullReportInput, Manifest, ReportInput, Scope},
-    wire,
-};
+use crate::units::Scope;
+use chrono_harness::{file_identity, sha256, wire};
 use std::{collections::BTreeMap, io::Read};
 
 pub(crate) fn publish(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -69,38 +66,20 @@ fn local_manifest(
                     input.report_path
                 )
             })?;
-        reports.push(FullReportInput {
-            unit,
-            path: input.report_path.clone(),
-            sha256: sha256(&raw),
-            runner_sha256: Some(pins["runner_sha256"].as_str().ok_or("runner pin")?.into()),
-            judge_sha256: Some(pins["judge_sha256"].as_str().ok_or("judge pin")?.into()),
-            artifacts: None,
-        });
+        reports.push(json!({
+            "unit": unit,
+            "path": input.report_path,
+            "sha256": sha256(&raw),
+            "runner_sha256": pins["runner_sha256"].as_str().ok_or("runner pin")?,
+            "judge_sha256": pins["judge_sha256"].as_str().ok_or("judge pin")?
+        }));
     }
-    let manifest = if full {
-        serde_json::to_value(FullManifest {
-            schema: "chrono-full-collection/v1".into(),
-            reports,
-        })
-        .map_err(|e| e.to_string())?
+    let schema = if full {
+        "chrono-full-collection/v1"
     } else {
-        serde_json::to_value(Manifest {
-            schema: "chrono-ci-collection/v1".into(),
-            reports: reports
-                .into_iter()
-                .map(|r| ReportInput {
-                    unit: r.unit,
-                    path: r.path,
-                    sha256: r.sha256,
-                    runner_sha256: r.runner_sha256.unwrap(),
-                    judge_sha256: r.judge_sha256.unwrap(),
-                    artifacts: None,
-                })
-                .collect(),
-        })
-        .map_err(|e| e.to_string())?
+        "chrono-ci-collection/v1"
     };
+    let manifest = json!({"schema":schema,"reports":reports});
     let raw = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     if p.scope
         != Some(Scope::Collect {
@@ -169,20 +148,25 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     }
     let req: InputRequest = decode(&raw)?;
     let root = &req.host_root;
-    if !root.is_absolute() {
+    if !root.is_absolute()
+        || root.canonicalize().map_err(|e| e.to_string())?
+            != std::env::current_dir()
+                .and_then(|cwd| cwd.canonicalize())
+                .map_err(|e| e.to_string())?
+    {
         return Err("invalid check input request/source/root".into());
     }
     let config_bytes = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;
     let config: Value = decode(&config_bytes)?;
-    let program = if matches!(
-        config["schema"].as_str(),
-        Some(units::SCHEMA | units::FULL_SCHEMA)
-    ) {
-        config["collection"]["runner"].as_str()
-    } else {
-        config["runner"].as_str()
-    }
-    .ok_or("CI producer runner missing")?;
+    let program = match decode_projection(&config_bytes)? {
+        Projection::Units(c) => c.collection.runner,
+        Projection::Full(c) => c.runner,
+        Projection::Check(c) => c.runner,
+        Projection::Release(_) => {
+            return Err("release configuration cannot produce check inputs".into());
+        }
+    };
+    let program = program.as_str();
     let mut retained_originals = Originals::open(root, program)?;
     let dir = retained_originals.request_directory(&req)?;
     let mut originals = vec![];
