@@ -1,6 +1,6 @@
 //! Obtain DELTA and retained-original decisions from the installed adjudicator.
 use super::*;
-use chrono_harness::{CommandSpec, file_identity, resolve_program, run_process_observed_for};
+use chrono_harness::{CommandSpec, file_identity, resolve_program};
 use std::time::Duration;
 
 pub(crate) fn request(
@@ -40,8 +40,9 @@ pub(crate) fn request(
     };
     query["profile"] = json!(config.collection.check_config);
     let input = serde_json::to_vec(&query).map_err(|e| e.to_string())?;
-    let result = run_process_observed_for(
+    let result = crate::observed::run(
         root,
+        &root.join(&config.collection.runner),
         &command,
         &input,
         &file_identity(&executable)?.0,
@@ -54,7 +55,7 @@ pub(crate) fn request(
         return Err(format!(
             "requirements-v1 exited {}: {}",
             result.exit_code,
-            result.stderr.trim_end()
+            String::from_utf8_lossy(&result.stderr_bytes).trim_end()
         ));
     }
     decode(&result.stdout_bytes)

@@ -1,6 +1,7 @@
 //! GitHub transports fixed unit artifacts; the scoped judge decides their acceptance.
 use super::*;
-use chrono_harness::{CommandSpec, ProcessResult, file_identity, run_process_observed_for, sha256};
+use crate::observed::Observation;
+use chrono_harness::{CommandSpec, file_identity, sha256};
 use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
@@ -30,12 +31,13 @@ struct Transport<'a> {
     digest: String,
     observations: Vec<Value>,
     acquisition_path: Option<String>,
+    runner: std::path::PathBuf,
     downloads: Option<chrono_harness::retained_artifacts::retention::Publication>,
     acquisition: Option<AcquisitionBudget>,
 }
 
 impl<'a> Transport<'a> {
-    fn new(root: &'a Path, c: &'a units::Gather) -> Result<Self, String> {
+    fn new(root: &'a Path, runner: &str, c: &'a units::Gather) -> Result<Self, String> {
         let mut environment = BTreeMap::new();
         for key in &c.inherit_environment {
             if let Ok(value) = std::env::var(key) {
@@ -56,6 +58,7 @@ impl<'a> Transport<'a> {
             digest: file_identity(&exe)?.0,
             observations: vec![],
             acquisition_path: None,
+            runner: root.join(runner),
             downloads: None,
             acquisition: None,
         })
@@ -80,7 +83,7 @@ impl<'a> Transport<'a> {
         args: &[String],
         remaining: Duration,
         output_limit: usize,
-    ) -> Result<ProcessResult, String> {
+    ) -> Result<Observation, String> {
         let (remaining, output_limit) = if let Some(budget) = &self.acquisition {
             let limit = output_limit
                 .min(budget.stdout_remaining)
@@ -99,16 +102,19 @@ impl<'a> Transport<'a> {
             timeout_seconds: self.config.timeout_seconds,
             output_limit_bytes: output_limit,
         };
-        let p = run_process_observed_for(self.root, &spec, &[], &self.digest, remaining)?;
+        let p = crate::observed::run(self.root, &self.runner, &spec, &[], &self.digest, remaining)?;
         // Credentials are explicitly omitted, while the original nonsecret process bytes and environment digest remain.
-        let env: BTreeMap<_, _> = p
-            .environment
+        let env: BTreeMap<_, _> = spec
+            .env
             .iter()
-            .filter(|(k, _)| !self.config.credential_environment.contains(k))
+            .filter(|(k, _)| {
+                k.as_str() != "CHRONO_PROCESS_FDS"
+                    && !self.config.credential_environment.contains(k)
+            })
             .collect();
         self.observations.push(json!({"argv":p.argv,"cwd":p.cwd,"executable":p.executable,"sha256":p.sha256,
             "environment":env,"omitted_credentials":self.config.credential_environment,"original_environment_digest":p.environment_digest,
-            "stdin_sha256":p.stdin_sha256,"stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
+            "stdin_sha256":sha256(&[]),"stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
             "stdout_sha256":p.stdout_sha256,"stderr_sha256":p.stderr_sha256,"exit_code":p.exit_code,"failure":p.failure}));
         if let Some(budget) = &mut self.acquisition {
             budget.stdout_remaining = budget.stdout_remaining.saturating_sub(p.stdout_bytes.len());
@@ -765,7 +771,7 @@ pub(super) fn gather(
     {
         return Err("repository must be explicit owner/name".into());
     }
-    let mut transport = Transport::new(root, &c.gather)?;
+    let mut transport = Transport::new(root, &c.collection.runner, &c.gather)?;
     let result = inner(root, path, c, repository, &mut transport);
     let acquisition_path = transport.acquisition_path.take();
     let storage_result = transport.downloads.take().map(|publication| publication.complete(

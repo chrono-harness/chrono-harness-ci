@@ -200,8 +200,9 @@ impl Inventory<'_> {
             output_limit_bytes: self.config.output_limit_bytes,
         };
         let start = Instant::now();
-        let process = chrono_harness::run_process_observed_for(
+        let process = crate::observed::run(
             self.root,
+            &crate::observed::installed(self.root)?,
             &spec,
             &[],
             &file_identity(&executable)?.0,
