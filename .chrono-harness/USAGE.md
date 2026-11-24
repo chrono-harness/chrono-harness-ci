@@ -14,4 +14,4 @@
 
 ## 本仓验证
 
-产品位于 [`crates/ci`](../crates/ci)。原生测试位于 [`crates/ci-tests`](../crates/ci-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 执行本仓的检查。
+产品位于 [`crates/ci`](../crates/ci)。原生测试位于 [`crates/ci-tests`](../crates/ci-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 按 Git 变更检查下载准入、库存和工作流生成的证明与原生消费者。汇总读取固定候选的单元原件。
