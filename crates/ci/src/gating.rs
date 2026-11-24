@@ -121,6 +121,9 @@ pub struct Detector {
     pub runs_on: String,
     pub timeout_minutes: u32,
     pub bootstrap: Vec<String>,
+    /// Pass the workflow's existing read-only repository token to this step.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bootstrap_github_token: bool,
     /// Literal source/registration paths chosen by the host, not unit inference.
     pub sparse_checkout: Vec<String>,
     /// Explicit retained originals; omitted preserves the previous detector.
@@ -345,6 +348,11 @@ pub(crate) fn render(c: &units::Config, path: &str) -> Result<BTreeMap<String, S
             "      {job}: ${{{{ steps.detect.outputs.{job} }}}}\n"
         ));
     }
+    let bootstrap_environment = if g.detector.bootstrap_github_token {
+        "        env:\n          GH_TOKEN: ${{ github.token }}\n"
+    } else {
+        ""
+    };
     let mut text = format!(
         r#"{prefix}jobs:
   detect:
@@ -364,7 +372,7 @@ pub(crate) fn render(c: &units::Config, path: &str) -> Result<BTreeMap<String, S
 {sparse}          persist-credentials: true
       - name: Bootstrap registered detector tools
         shell: bash
-        run: |
+{bootstrap_environment}        run: |
           {bootstrap}
       - name: Detect required units from fixed Git endpoints
         id: detect
