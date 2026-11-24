@@ -4,11 +4,13 @@ use tempfile::tempdir;
 const CONFIG: &str = ".chrono-harness/ci/check.json";
 const REGISTRY: &str = ".chrono-harness/cache.json";
 
-fn source(jobs: &[&str]) -> String {
+fn configured_jobs(native_jobs: &[&str], cache_jobs: &[&str]) -> String {
     let mut native = Vec::new();
     let mut selected = Vec::new();
-    for job in jobs {
+    for job in native_jobs {
         native.push(format!(r#""{job}":{{"action_path":".github/actions/{job}/action.yml","command":["./native.sh","two words"]}}"#));
+    }
+    for job in cache_jobs {
         selected.push(format!(r#""{job}":{{"need":"check","output_use":"compile","consumer":"build","prepare":["./prepare"],"caches":["cargo"]}}"#));
     }
     let pin = "1".repeat(40);
@@ -17,6 +19,10 @@ fn source(jobs: &[&str]) -> String {
         native.join(","),
         selected.join(",")
     )
+}
+
+fn source(jobs: &[&str]) -> String {
+    configured_jobs(jobs, jobs)
 }
 
 fn write(root: &Path, path: &str, text: &str) {
@@ -61,4 +67,84 @@ fn native_host_command_has_one_writer_and_verify_preserves_drift() {
             .contains("drift")
     );
     assert_eq!(fs::read_to_string(dir.join(output)).unwrap(), drift);
+}
+
+#[test]
+fn both_public_modes_reject_unregistered_combinations_and_leave_outputs_alone() {
+    let root = tempdir().unwrap();
+    let dir = root.path();
+    write(
+        dir,
+        REGISTRY,
+        r#"{"schema":"chrono-cache/v2","require_primary_checkout":true,"caches":{"cargo":{"consumers":["build"]}}}"#,
+    );
+    let normal = source(&["build"]);
+    let downloads = normal.replace(r#""jobs":{"build":{"need""#,r#""downloads":{"schema":"chrono-github-downloads/v1","namespace":"host","environment":{},"entries":{}},"jobs":{"build":{"need""#);
+    assert_ne!(downloads, normal);
+    for (path, config, error) in [
+        (
+            "policy/actions.json",
+            normal.clone(),
+            "host CI registration",
+        ),
+        (
+            CONFIG,
+            configured_jobs(&[], &[]),
+            "requires its registered job",
+        ),
+        (
+            CONFIG,
+            configured_jobs(&["build"], &[]),
+            "requires its registered job",
+        ),
+        (
+            CONFIG,
+            configured_jobs(&["build"], &["build", "extra"]),
+            "requires its registered job",
+        ),
+        (
+            CONFIG,
+            configured_jobs(&["other"], &["build"]),
+            "requires its registered job",
+        ),
+        (CONFIG, downloads, "register native download directories"),
+        (
+            CONFIG,
+            normal.replace(
+                ".github/actions/build/action.yml",
+                "actions/build/action.yml",
+            ),
+            "distinct .github/actions",
+        ),
+    ] {
+        write(dir, path, &config);
+        for verify in [false, true] {
+            let found = chrono_ci::generate(dir, path, verify).unwrap_err();
+            assert!(found.contains(error), "{found}");
+            assert!(!dir.join(".github").exists());
+        }
+    }
+
+    let two = source(&["a", "b"]).replace(
+        r#""caches":["cargo"]"#,
+        r#""save_caches":[],"caches":["cargo"]"#,
+    );
+    let shared = two.replace(
+        ".github/actions/b/action.yml",
+        ".github/actions/a/action.yml",
+    );
+    write(dir, CONFIG, &shared);
+    let error = chrono_ci::generate(dir, CONFIG, false).unwrap_err();
+    assert!(error.contains("distinct .github/actions"), "{error}");
+    assert!(!dir.join(".github").exists());
+
+    write(dir, CONFIG, &two);
+    assert!(chrono_ci::generate(dir, CONFIG, false).unwrap());
+    assert!(!chrono_ci::generate(dir, CONFIG, true).unwrap());
+    let output = dir.join(".github/actions/b/action.yml");
+    let before = fs::read(&output).unwrap();
+    write(dir, CONFIG, &shared);
+    let error = chrono_ci::generate(dir, CONFIG, true).unwrap_err();
+    assert!(error.contains("distinct .github/actions"), "{error}");
+    assert_eq!(fs::read(output).unwrap(), before);
 }
