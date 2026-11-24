@@ -110,10 +110,14 @@ pub(crate) fn command(program: &Path) -> Result<Command, String> {
     command.arg("exec-with-descriptors-v1").arg(program);
     if !descriptors.is_empty() {
         use std::os::unix::process::CommandExt;
-        let mut carrier: Vec<String> = std::env::var("CHRONO_PROCESS_FDS")
-            .ok()
-            .into_iter()
-            .collect();
+        let mut carrier = Vec::new();
+        if let Some(inherited) = std::env::var_os("CHRONO_PROCESS_FDS") {
+            carrier.push(
+                inherited
+                    .into_string()
+                    .map_err(|_| "non-UTF8 ownership descriptors")?,
+            );
+        }
         carrier.extend(descriptors.iter().map(|fd| fd.as_raw_fd().to_string()));
         command.env("CHRONO_PROCESS_FDS", carrier.join(","));
         // The child duplicates the descriptors in its own exec wrapper. The parent keeps close-on-exec set.
