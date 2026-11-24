@@ -52,7 +52,7 @@ literals_tests_operation=verify.ci-literals-tests
 inventory_tests_operation=verify.ci-inventory-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_operation.rlib" "$src/verified_literals.rs" \
-  "$src/cache.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
+  "$src/cache_action.rs" "$src/cache.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
   "$src/startup.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downloads_operation.rlib" "$src/verified_download.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$inventory_operation.rlib" "$src/verified_inventory.rs" \
@@ -61,7 +61,7 @@ chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downl
   "$include/verified_download.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
   "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
-  "$include/verified_literals.rs" "$include/cache.rs" "$include/downloads.rs" "$include/gating.rs" \
+  "$include/verified_literals.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/downloads.rs" "$include/gating.rs" \
   "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
   "$support/../worktree/support/diagnostic_copy.rs" "$support/startup.rs"

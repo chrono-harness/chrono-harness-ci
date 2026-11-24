@@ -39,6 +39,27 @@ use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn cache_actions_require_the_same_registered_jobs_and_distinct_outputs() {
+    use policy::cache_action as action;
+    proof {
+        reveal_strlit("a"); reveal_strlit("b");
+        reveal_strlit(".chrono-harness/ci/");
+        assert("a"@[0] != "b"@[0]);
+    }
+    let ordinary = action::invalid_configuration(&["a", "b"], &["a", "b"], false);
+    let different = action::invalid_configuration(&["a"], &["b"], false);
+    let empty = action::invalid_configuration(&[], &[], false);
+    let downloads = action::invalid_configuration(&["a"], &["a"], true);
+    let shared = action::output_path(".github/actions/build/action.yml".as_bytes(), false);
+    let missing_prefix = action::registration("chrono-github-cache-actions/v1", &[]);
+    assert(ordinary.is_none());
+    assert(matches!(different, Some(action::RegistrationError::MissingJob)));
+    assert(matches!(empty, Some(action::RegistrationError::MissingJob)));
+    assert(matches!(downloads, Some(action::RegistrationError::Downloads)));
+    assert(!shared && !missing_prefix);
+}
+
+#[cfg(verus_keep_ghost)]
 fn receipt_failure_batch_exists_for_either_checkout() {
     let empty = retained_receipts::needs_failure_batch(false, false);
     let main_only = retained_receipts::needs_failure_batch(true, false);
