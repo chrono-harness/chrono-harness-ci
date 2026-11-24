@@ -291,20 +291,26 @@ pub(crate) fn context_input(bytes: &[u8]) -> Result<Value, String> {
     Ok(ctx)
 }
 pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result<Value, String> {
-    let cfg = chrono_harness::load_selected_config(root, config)?;
+    let cfg = crate::runtime_session::Session::selected_config(root, runner, config)?;
     let path = cfg["registries"]["judges"]
         .as_str()
         .ok_or("full judges registry")?;
-    let bindings: Vec<chrono_harness::wire::Binding> = decode::<Value>(
-        &fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?,
-    )?["judges"]
-        .clone()
-        .as_array()
-        .ok_or("full judges")?
-        .iter()
-        .map(|b| serde_json::from_value(b.clone()).map_err(|e| e.to_string()))
-        .collect::<Result<_, _>>()?;
-    chrono_harness::full::schedule(&bindings)?;
+    #[derive(Deserialize)]
+    struct Binding {
+        id: String,
+        sha256: Option<String>,
+        executable: String,
+    }
+    let registry: Value =
+        decode(&fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?)?;
+    let raw = registry.get("judges").ok_or("full judges")?;
+    crate::runtime_session::Session::query::<()>(
+        root,
+        runner,
+        "judge-evidence-v1",
+        json!({"operation":"validate-schedule","bindings":raw}),
+    )?;
+    let bindings: Vec<Binding> = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
     let ids: std::collections::BTreeSet<_> = bindings.iter().map(|b| b.id.as_str()).collect();
     if ids
         != [

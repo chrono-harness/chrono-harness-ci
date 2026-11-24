@@ -21,7 +21,7 @@ fn local_manifest(
     let pins = if full {
         super::full::executable_pins(&req.host_root, &req.profile, &c.collection.runner)?
     } else {
-        let profile = chrono_harness::load_config(&req.host_root.join(&req.profile))?;
+        let profile = units::scoped_profile(&req.host_root, c)?;
         let judge = chrono_harness::resolve_program(
             &req.host_root,
             &profile.judge.program,
@@ -30,7 +30,11 @@ fn local_manifest(
         json!({"runner_sha256":units::installed_runner_sha256(&req.host_root, &c.collection.runner)?,"judge_sha256":file_identity(&judge)?.0})
     };
     let (query, report_limit) = if full {
-        let cfg = chrono_harness::load_selected_config(&req.host_root, &req.profile)?;
+        let cfg = crate::runtime_session::Session::selected_config(
+            &req.host_root,
+            &c.collection.runner,
+            &req.profile,
+        )?;
         let limit = cfg["execution_units"]["collection_limits"]["report_bytes"]
             .as_u64()
             .ok_or("full report bound")?;
@@ -58,8 +62,8 @@ fn local_manifest(
         let input = registered
             .get(&unit)
             .ok_or("required unit missing provider registration")?;
-        let raw =
-            chrono_harness::units::read_bounded(&req.host_root, &input.report_path, report_limit)
+        let digest: String =
+            crate::runtime_session::Session::query(&req.host_root, &c.collection.runner, "retained-artifacts-v1", json!({"operation":"bounded-file-sha256","path":input.report_path,"limit":report_limit}))
                 .map_err(|e| {
                 format!(
                     "missing/invalid registered unit report {unit} at {}: {e}",
@@ -69,7 +73,7 @@ fn local_manifest(
         reports.push(json!({
             "unit": unit,
             "path": input.report_path,
-            "sha256": sha256(&raw),
+            "sha256": digest,
             "runner_sha256": pins["runner_sha256"].as_str().ok_or("runner pin")?,
             "judge_sha256": pins["judge_sha256"].as_str().ok_or("judge pin")?
         }));
@@ -93,10 +97,11 @@ fn local_manifest(
         .map(|u| u.report_path.clone())
         .collect::<Vec<_>>();
     let profile = units::profile(&req.host_root, c)?;
-    chrono_harness::units::validate_collection_paths(
-        &c.gather.manifest_path,
-        &profile.report_path,
-        &unit_paths,
+    crate::runtime_session::Session::query::<()>(
+        &req.host_root,
+        &c.collection.runner,
+        "judge-evidence-v1",
+        json!({"operation":"collection-paths","manifest":c.gather.manifest_path,"report":profile.report_path,"units":unit_paths}),
     )?;
     publish(&req.host_root, &c.gather.manifest_path, &raw)?;
     let mut evidence = json!({"schema":"chrono-local-collection-inputs/v1","manifest_path":c.gather.manifest_path,"manifest_sha256":sha256(&raw),"manifest":manifest,"expected_executables":pins,"endpoint_evidence":p.evidence,"requirements":requirements});

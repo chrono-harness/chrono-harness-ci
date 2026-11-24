@@ -291,6 +291,23 @@ pub fn validate(c: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub(super) struct ScopedProfile {
+    pub schema: String,
+    pub judge: chrono_harness::CommandSpec,
+    pub units: Value,
+    pub report_path: String,
+    pub retained_reference: bool,
+}
+pub(super) fn scoped_profile(root: &Path, c: &Config) -> Result<ScopedProfile, String> {
+    crate::runtime_session::Session::query(
+        root,
+        &c.collection.runner,
+        "retained-artifacts-v1",
+        json!({"operation":"scoped-check-profile","path":c.collection.check_config}),
+    )
+}
+
 pub(super) struct Profile {
     pub units: BTreeMap<String, Unit>,
     pub report_path: String,
@@ -298,9 +315,18 @@ pub(super) struct Profile {
 }
 pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
     let profile = if c.schema == FULL_SCHEMA {
-        let raw = chrono_harness::load_selected_config(root, &c.collection.check_config)?;
-        let block = chrono_harness::units::full_execution_units(&raw)?
-            .ok_or("full provider requires registered full units")?;
+        let raw = crate::runtime_session::Session::selected_config(
+            root,
+            &c.collection.runner,
+            &c.collection.check_config,
+        )?;
+        let block: Option<Value> = crate::runtime_session::Session::query(
+            root,
+            &c.collection.runner,
+            "judge-evidence-v1",
+            json!({"operation":"full-execution-units","profile":raw}),
+        )?;
+        let block = block.ok_or("full provider requires registered full units")?;
         Profile {
             units: serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?,
             report_path: block["report_path"]
@@ -310,14 +336,12 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
             judge: None,
         }
     } else {
-        let profile =
-            chrono_harness::load_config(&no_symlink_parents(root, &c.collection.check_config)?)?;
-        if profile.schema != chrono_harness::units::PROFILE {
+        let profile = scoped_profile(root, c)?;
+        if profile.schema != "chrono-ci-check/v3" {
             return Err("v1 unit provider requires chrono-ci-check/v3".into());
         }
         Profile {
-            units: serde_json::from_value(profile.policy["units"].clone())
-                .map_err(|e| e.to_string())?,
+            units: serde_json::from_value(profile.units).map_err(|e| e.to_string())?,
             report_path: profile.report_path,
             judge: Some(profile.judge),
         }

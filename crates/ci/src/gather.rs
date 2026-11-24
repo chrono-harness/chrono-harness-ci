@@ -505,9 +505,7 @@ fn inner(
         return Err("collection command context mismatch".into());
     }
     let retained_streams = if c.schema == units::SCHEMA {
-        let profile =
-            chrono_harness::load_config(&no_symlink_parents(root, &c.collection.check_config)?)?;
-        chrono_harness::units::reference_publication(&profile)?
+        units::scoped_profile(root, c)?.retained_reference
     } else {
         false
     };

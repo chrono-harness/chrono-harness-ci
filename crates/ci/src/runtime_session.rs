@@ -35,6 +35,41 @@ impl Session {
             name,
         })
     }
+    pub(crate) fn query<T: DeserializeOwned>(
+        root: &Path,
+        runner: &str,
+        capability: &'static str,
+        input: Value,
+    ) -> Result<T, String> {
+        let runner = crate::units::installed_runner_path(root, runner)?;
+        let mut session = Self::open(root, &runner, capability)?;
+        let response = session.call(input)?;
+        session.close()?;
+        Ok(response)
+    }
+
+    pub(crate) fn selected_config(root: &Path, runner: &str, path: &str) -> Result<Value, String> {
+        let program = crate::units::installed_runner_path(root, runner)?;
+        let mut child = Command::new(&program)
+            .arg("exec-with-descriptors-v1")
+            .arg(&program)
+            .arg("selected-host-config-v1")
+            .current_dir(root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let stdin = child.stdin.take().unwrap();
+        let sent = serde_json::to_writer(stdin, path);
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim_end().into());
+        }
+        sent.map_err(|e| e.to_string())?;
+        crate::decode(&output.stdout)
+    }
+
     pub fn call<T: DeserializeOwned>(&mut self, command: Value) -> Result<T, String> {
         let stdin = self.input.as_mut().unwrap();
         serde_json::to_writer(&mut *stdin, &command).map_err(|e| e.to_string())?;

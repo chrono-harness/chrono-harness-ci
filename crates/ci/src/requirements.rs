@@ -13,8 +13,7 @@ pub(crate) fn request(
     let (program, path) = match &config.requirements_program {
         Some(program) => (program.as_str(), None),
         None if config.schema == units::SCHEMA => {
-            let path = no_symlink_parents(root, &config.collection.check_config)?;
-            installed = chrono_harness::load_config(&path)?.judge;
+            installed = units::scoped_profile(root, config)?.judge;
             (
                 installed.program.as_str(),
                 installed.env.get("PATH").map(String::as_str),
