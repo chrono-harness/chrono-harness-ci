@@ -121,8 +121,8 @@ pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Resu
     Ok(serde_json::to_string(&json!({
         "schema":"chrono-ci-migration/v1", "status":"migrated",
         "previous_input":input,"previous_config":old_source,"config":source,
-        "previous_input_sha256":chrono_harness::sha256(&old_bytes),
-        "config_sha256":chrono_harness::sha256(&source_bytes),
+        "previous_input_sha256":crate::files::sha256(&old_bytes),
+        "config_sha256":crate::files::sha256(&source_bytes),
         "written_workflows":written,"retired_workflows":removed,"retired_source":retire_source,
         "governance":"not-evaluated","atomicity":"not-a-multifile-transaction"
     }))

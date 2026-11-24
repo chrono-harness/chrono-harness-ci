@@ -1,5 +1,5 @@
 //! CI produces the current preparation wire response; the installed owner validates it and retains its originals.
-use crate::runtime_session::Session;
+use crate::storage::Storage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -89,11 +89,11 @@ pub struct Original {
     pub sha256: String,
 }
 
-pub(crate) struct Originals(Session);
+pub(crate) struct Originals(Storage);
 impl Originals {
     pub(crate) fn open(root: &Path, runner: &str) -> Result<Self, String> {
         let path = crate::units::installed_runner_path(root, runner)?;
-        Session::open(root, &path, "retained-artifacts-v1").map(Self)
+        Storage::open(root, &path).map(Self)
     }
     pub(crate) fn request_directory(&mut self, request: &InputRequest) -> Result<String, String> {
         self.0

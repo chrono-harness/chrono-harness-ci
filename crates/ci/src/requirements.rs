@@ -1,6 +1,9 @@
 //! Obtain DELTA and retained-original decisions from the installed adjudicator.
 use super::*;
-use chrono_harness::{CommandSpec, file_identity, resolve_program};
+use crate::{
+    files::{file_identity, resolve_program},
+    observed::CommandSpec,
+};
 use std::time::Duration;
 
 pub(crate) fn request(

@@ -4,7 +4,10 @@ use crate::preparation::{
     self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
 };
 use crate::units::Scope;
-use chrono_harness::{file_identity, sha256, wire};
+use crate::{
+    codec as wire,
+    files::{file_identity, sha256},
+};
 use std::{collections::BTreeMap, io::Read};
 
 pub(crate) fn publish(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -22,7 +25,7 @@ fn local_manifest(
         super::full::executable_pins(&req.host_root, &req.profile, &c.collection.runner)?
     } else {
         let profile = units::scoped_profile(&req.host_root, c)?;
-        let judge = chrono_harness::resolve_program(
+        let judge = crate::files::resolve_program(
             &req.host_root,
             &profile.judge.program,
             profile.judge.env.get("PATH").map(String::as_str),

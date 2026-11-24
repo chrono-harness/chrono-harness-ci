@@ -27,3 +27,52 @@ fn installed_runner_can_link_to_its_release_outside_the_checkout() {
     fs::remove_file(exe).unwrap();
     assert!(installed_runner_sha256(root.path(), "bin/runner").is_err());
 }
+
+#[test]
+fn offline_initial_inventory_rejects_invalid_scope_and_dependency_graph() {
+    use chrono_ci::initial::{Binding, Profile};
+    let binding = |id: &str, after: &[&str]| Binding {
+        id: id.into(),
+        executable: format!("bin/{id}"),
+        version: "1".into(),
+        sha256: Some("e".repeat(64)),
+        argv: vec![],
+        selector: "every-initial".into(),
+        after: after.iter().map(|id| id.to_string()).collect(),
+        modes: vec!["inventory".into()],
+    };
+    let mut profile = Profile {
+        schema: "chrono-initial-check/v1".into(),
+        host_config: ".chrono-harness/config.json".into(),
+        judges: vec![binding("last", &["first"]), binding("first", &[])],
+        timeout_seconds: 1,
+        stdout_limit_bytes: 64 * 1024 * 1024,
+    };
+    assert!(profile.validate().is_ok());
+    for edges in [
+        vec!["missing".into()],
+        vec!["last".into()],
+        vec!["first".into(), "first".into()],
+    ] {
+        profile.judges[0].after = edges;
+        assert!(profile.validate().is_err());
+    }
+    profile.judges[0].after = vec!["first".into()];
+    profile.judges[0].modes = vec!["evaluate".into()];
+    assert!(profile.validate().is_err());
+    profile.judges[0].modes = vec!["inventory".into()];
+    profile.judges[0].sha256 = Some("A".repeat(64));
+    assert!(profile.validate().is_err());
+}
+#[test]
+fn repeated_nested_members_are_rejected_before_projection() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ci.json");
+    std::fs::write(
+        &path,
+        br#"{"settings":[{"name":"original","name":"changed"}]}"#,
+    )
+    .unwrap();
+    let error = chrono_ci::load(&path).unwrap_err();
+    assert!(error.contains("duplicate JSON member name"), "{error}");
+}

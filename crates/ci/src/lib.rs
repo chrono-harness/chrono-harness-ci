@@ -13,7 +13,16 @@ pub fn single_check_cache(build_consumers: usize) -> (supported: bool)
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{decode, no_symlink_parents, relative_path};
+use crate::{
+    codec::decode,
+    files::{no_symlink_parents, relative_path},
+};
+#[cfg(not(verus_keep_ghost))]
+mod codec;
+#[cfg(not(verus_keep_ghost))]
+mod files;
+#[cfg(not(verus_keep_ghost))]
+pub mod initial;
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Deserializer, Serialize};
 #[cfg(not(verus_keep_ghost))]
@@ -52,6 +61,8 @@ mod requirements;
 mod runtime_session;
 #[cfg(not(verus_keep_ghost))]
 pub mod startup;
+#[cfg(not(verus_keep_ghost))]
+mod storage;
 #[cfg(not(verus_keep_ghost))]
 pub mod units;
 #[cfg(not(verus_keep_ghost))]
@@ -115,7 +126,7 @@ pub struct Config {
 #[cfg(not(verus_keep_ghost))]
 pub struct InitialInventory {
     pub path: String,
-    pub profile: chrono_harness::initial::Profile,
+    pub profile: initial::Profile,
 }
 #[cfg(not(verus_keep_ghost))]
 fn inventory_present<'de, D: Deserializer<'de>>(
@@ -152,7 +163,7 @@ fn shell(s: &str) -> String {
 }
 #[cfg(not(verus_keep_ghost))]
 fn full_oid(s: &str) -> bool {
-    chrono_harness::verified_identifiers::valid_oid(s.as_bytes())
+    matches!(s.len(), 40 | 64) && s.bytes().any(|b| b != b'0') && crate::codec::lowercase_hex(s)
 }
 #[cfg(not(verus_keep_ghost))]
 fn action(s: &str, repo: &str) -> Result<(), String> {

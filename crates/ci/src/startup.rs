@@ -16,9 +16,9 @@ pub fn retention_days_valid(days: Option<u16>) -> (valid: bool)
 }
 
 #[cfg(not(verus_keep_ghost))]
-use crate::{action, gating, overlap, scalar, shell, units};
+use crate::files::relative_path;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::relative_path;
+use crate::{action, gating, overlap, scalar, shell, units};
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(verus_keep_ghost))]
@@ -58,7 +58,7 @@ pub(crate) fn validate(c: &units::Config, s: &Config) -> Result<(), String> {
             .contains(['\0', '\r', '\n', '*', '?', '[', ']', '!'])
         || s.directory.contains("${{")
         || s.artifact.len() > 128
-        || !chrono_harness::verified_identifiers::valid_id(s.artifact.as_bytes())
+        || !crate::units::valid_id(&s.artifact)
         || s.consumers.is_empty()
     {
         return Err(

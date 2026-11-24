@@ -1,9 +1,10 @@
 //! Fixed full-governance context transport; the configured judges own admission.
 use super::{action, full_oid, output_preflight, scalar, shell, write_file};
 use crate::units::Scope;
-use chrono_harness::{
-    decode, file_identity, no_symlink_parents, relative_path, sha256,
-    units::{self, overlap},
+use crate::{
+    codec::decode,
+    files::{file_identity, no_symlink_parents, relative_path, sha256},
+    units::{self, path_overlap as overlap},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
@@ -343,7 +344,7 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
         .map(|b| json!({"id":b.id,"sha256":b.sha256}))
         .collect();
     Ok(
-        json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":chrono_harness::wire::digest(&pins)?,"judges":pins}),
+        json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":crate::codec::digest(&pins)?,"judges":pins}),
     )
 }
 /// Preserve caller context bytes separately from transport observations. Does not judge its policy.

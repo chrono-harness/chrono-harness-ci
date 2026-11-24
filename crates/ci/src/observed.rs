@@ -1,13 +1,42 @@
 //! The provider retains bounded bytes and its own business receipt from the installed process owner.
-use chrono_harness::{CommandSpec, sha256};
-use serde::Deserialize;
+use crate::files::sha256;
+use serde::{Deserialize, Serialize};
+
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     time::Duration,
 };
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CommandSpec {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    pub timeout_seconds: u64,
+    pub output_limit_bytes: usize,
+}
+impl CommandSpec {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.program.is_empty()
+            || self.program.contains('\0')
+            || self.args.iter().any(|a| a.contains('\0'))
+            || self
+                .env
+                .iter()
+                .any(|(k, v)| k.is_empty() || k.contains(['=', '\0']) || v.contains('\0'))
+            || self.timeout_seconds == 0
+            || !(1..=64 * 1024 * 1024).contains(&self.output_limit_bytes)
+        {
+            return Err("invalid command/bounds".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Deserialize)]
 pub(crate) struct Observation {
     pub argv: Vec<String>,
@@ -83,9 +112,7 @@ pub(crate) fn run(
     digest: &str,
     timeout: Duration,
 ) -> Result<Observation, String> {
-    let mut child = Command::new(runner)
-        .arg("exec-with-descriptors-v1")
-        .arg(runner)
+    let mut child = crate::storage::command(runner)?
         .arg("observed-command-v1")
         .current_dir(root)
         .stdin(Stdio::piped())
@@ -139,5 +166,5 @@ pub(crate) fn installed(root: &Path) -> Result<PathBuf, String> {
     if local.is_file() {
         return Ok(local);
     }
-    chrono_harness::resolve_program(root, "chrono-harness", None)
+    crate::files::resolve_program(root, "chrono-harness", None)
 }

@@ -1,7 +1,10 @@
 //! GitHub transports fixed unit artifacts; the scoped judge decides their acceptance.
 use super::*;
 use crate::observed::Observation;
-use chrono_harness::{CommandSpec, file_identity, sha256};
+use crate::{
+    files::{file_identity, sha256},
+    observed::CommandSpec,
+};
 use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
@@ -32,7 +35,8 @@ struct Transport<'a> {
     observations: Vec<Value>,
     acquisition_path: Option<String>,
     runner: std::path::PathBuf,
-    downloads: Option<chrono_harness::retained_artifacts::retention::Publication>,
+    downloads: Option<String>,
+    storage: crate::storage::Storage,
     acquisition: Option<AcquisitionBudget>,
 }
 
@@ -45,7 +49,7 @@ impl<'a> Transport<'a> {
             }
         }
         environment.extend(c.environment.clone());
-        let exe = chrono_harness::resolve_program(
+        let exe = crate::files::resolve_program(
             root,
             &c.program,
             Some(environment.get("PATH").map(String::as_str).unwrap_or("")),
@@ -60,6 +64,10 @@ impl<'a> Transport<'a> {
             acquisition_path: None,
             runner: root.join(runner),
             downloads: None,
+            storage: crate::storage::Storage::open(
+                root,
+                &units::installed_runner_path(root, runner)?,
+            )?,
             acquisition: None,
         })
     }
@@ -105,7 +113,7 @@ impl<'a> Transport<'a> {
         let p = crate::observed::run(self.root, &self.runner, &spec, &[], &self.digest, remaining)?;
         let mut observed_environment = spec.env;
         observed_environment.remove("CHRONO_PROCESS_FDS");
-        if chrono_harness::wire::digest(&observed_environment)? != p.environment_digest {
+        if crate::codec::digest(&observed_environment)? != p.environment_digest {
             return Err("transport environment differs from the observed command".into());
         }
         observed_environment.retain(|key, _| !self.config.credential_environment.contains(key));
@@ -187,10 +195,8 @@ impl<'a> Transport<'a> {
         if absolute.exists() {
             return Err("artifact download destination exists; retain original acquisition".into());
         }
-        chrono_harness::retained_artifacts::retention::directory_adopted(
-            self.downloads.as_ref(),
-            &absolute,
-        )?;
+        self.storage
+            .directory(self.root, self.downloads.as_deref(), directory)?;
         let policy = self.config.download_retry.clone();
         let attempts = policy.as_ref().map_or(1, |p| p.max_attempts);
         let mut stdout_remaining = self.config.output_limit_bytes;
@@ -198,10 +204,8 @@ impl<'a> Transport<'a> {
         for attempt in 1..=attempts {
             let destination = if policy.is_some() {
                 let path = format!("{directory}/attempt-{attempt}");
-                chrono_harness::retained_artifacts::retention::directory_adopted(
-                    self.downloads.as_ref(),
-                    &no_symlink_parents(self.root, &path)?,
-                )?;
+                self.storage
+                    .directory(self.root, self.downloads.as_deref(), &path)?;
                 path
             } else {
                 directory.into()
@@ -271,7 +275,7 @@ impl<'a> Transport<'a> {
         if paginate {
             args.extend(["--paginate".into(), "--slurp".into()]);
         }
-        chrono_harness::json(&self.run(&args)?)
+        crate::codec::json(&self.run(&args)?)
     }
 }
 
@@ -346,7 +350,7 @@ fn parent_units(
     let requirements =
         super::gating::requirements(root, c, d.base.clone(), d.candidate.clone(), d.initial)?;
     if requirements["required_units"] != json!(d.required_units)
-        || chrono_harness::wire::digest(&requirements["global_selected"])? != d.selection_sha256
+        || crate::codec::digest(&requirements["global_selected"])? != d.selection_sha256
         || requirements["changed_paths"]
             .as_array()
             .ok_or("complete delta missing")?
@@ -443,8 +447,8 @@ fn parent_units(
             || p.run_attempt < d.run_attempt
             || p.run_attempt > latest_attempt
             || production.artifact != format!("chrono-unit-{unit}-{}-{}", p.run_id, p.run_attempt)
-            || !chrono_harness::wire::is_digest(&production.context_sha256)
-            || !chrono_harness::wire::is_digest(&production.report_sha256)
+            || !crate::codec::is_digest(&production.context_sha256)
+            || !crate::codec::is_digest(&production.report_sha256)
         {
             return Err(format!("unit {unit} original producer binding invalid"));
         }
@@ -515,34 +519,20 @@ fn inner(
     let download_prefix = {
         let parent = no_symlink_parents(root, &c.gather.download_directory)?;
         fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
-        let retained =
-            chrono_harness::retained_artifacts::retention::unique_path(&parent, "gather-", "")?;
-        transport.downloads =
-            chrono_harness::retained_artifacts::retention::create_adopted_for_consumer(
-                root,
-                "check-original",
-                &retained,
-                true,
-                json!({"kind":"native-acquisition","outcome":"not-established"}),
-                None,
-                "publication-recheck",
-            )?;
-        transport.acquisition_path = Some(
-            retained
-                .strip_prefix(root)
-                .map_err(|e| e.to_string())?
-                .to_str()
-                .ok_or("acquisition path UTF8")?
-                .into(),
-        );
-        format!(
-            "{}/",
-            retained
-                .strip_prefix(root)
-                .map_err(|e| e.to_string())?
-                .to_str()
-                .ok_or("download path UTF-8")?
-        )
+        let parent = parent
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .to_str()
+            .ok_or("download parent UTF-8")?;
+        let (path, adopted) = transport.storage.start(
+            parent,
+            "gather-",
+            Some("publication-recheck"),
+            json!({"kind":"native-acquisition","outcome":"not-established"}),
+        )?;
+        transport.acquisition_path = Some(path.clone());
+        transport.downloads = adopted.then(|| path.clone());
+        format!("{path}/")
     };
     // Parent jobs share a completed artifact inventory and immutable workflow
     // revision. Reuse those observations only within this one acquisition.
@@ -757,22 +747,15 @@ pub(super) fn gather(
 ) -> Result<String, String> {
     let root = fs::canonicalize(root).map_err(|e| e.to_string())?;
     let root = root.as_path();
-    let _read_scope = chrono_harness::retained_artifacts::retention::read_scope(root)?;
     units::validate(c)?;
     let parts: Vec<_> = repository.split('/').collect();
-    if parts.len() != 2
-        || parts
-            .iter()
-            .any(|p| !chrono_harness::verified_identifiers::valid_id(p.as_bytes()))
-    {
+    if parts.len() != 2 || parts.iter().any(|p| !crate::units::valid_id(p)) {
         return Err("repository must be explicit owner/name".into());
     }
     let mut transport = Transport::new(root, &c.collection.runner, &c.gather)?;
     let result = inner(root, path, c, repository, &mut transport);
     let acquisition_path = transport.acquisition_path.take();
-    let storage_result = transport.downloads.take().map(|publication| publication.complete(
-        json!({"kind":"native-acquisition","result":result.as_ref().ok(),"error":result.as_ref().err(),"completion":"not-established"})
-    )).transpose();
+    let storage_result = transport.downloads.take().map(|path|transport.storage.publication::<()>(json!({"kind":"complete","path":path,"outcome":{"kind":"native-acquisition","result":result.as_ref().ok(),"error":result.as_ref().err(),"completion":"not-established"}}))).transpose();
     let mut report = json!({"schema":"chrono-ci-gather/v1","repository":repository,"result":result.as_ref().ok(),"error":result.as_ref().err(),"storage_error":storage_result.as_ref().err(),"processes":transport.observations});
     let mut retained = crate::preparation::Originals::open(root, &c.collection.runner)?;
     let gather_original = retained
@@ -784,29 +767,19 @@ pub(super) fn gather(
         .path;
     retained.close()?;
     report["retained_report"] = json!(gather_original);
-    if result.is_err() || storage_result.is_err() {
-        if let Some(inventory) =
-            chrono_harness::retained_artifacts::retention::Inventory::adopted(root)?
-        {
-            inventory.retain_diagnostic_path(&gather_original)?;
-        }
+    if (result.is_err() || storage_result.is_err()) && transport.storage.adopted()? {
+        transport
+            .storage
+            .publication::<()>(json!({"kind":"retain-diagnostic","path":gather_original}))?;
     }
-    let _slot = chrono_harness::retained_artifacts::retention::reference_report(
-        root,
-        &c.gather.report_path,
-        &gather_original,
-        &acquisition_path.into_iter().collect::<Vec<_>>(),
-        None,
-    )?;
+    transport.storage.publication::<()>(json!({"kind":"reference","slot":c.gather.report_path,"path":gather_original,"inputs":acquisition_path.into_iter().collect::<Vec<_>>()}))?;
     write_file(
         root,
         &c.gather.report_path,
         &serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
     )?;
-    chrono_harness::retained_artifacts::retention::settle_report(
-        root,
-        &c.gather.report_path,
-        &gather_original,
+    transport.storage.publication::<()>(
+        json!({"kind":"settle","slot":c.gather.report_path,"path":gather_original}),
     )?;
     result?;
     storage_result?;

@@ -14,9 +14,13 @@ pub fn listing_status(passed: bool) -> (status: &'static str)
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::retained_artifacts::retention;
+use crate::storage::Storage;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{CommandSpec, decode, file_identity, no_symlink_parents, sha256};
+use crate::{
+    codec::decode,
+    files::{file_identity, no_symlink_parents, sha256},
+    observed::CommandSpec,
+};
 #[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
 #[cfg(not(verus_keep_ghost))]
@@ -138,15 +142,17 @@ struct Inventory<'a> {
     config: Config,
     project: &'a Value,
     receipts: Vec<Value>,
-    publication: Option<retention::Publication>,
+    storage: Storage,
+    published: bool,
 }
 #[cfg(not(verus_keep_ghost))]
 impl Inventory<'_> {
     fn write(&self, name: &str, bytes: &[u8]) -> Result<String, String> {
         let path = format!("{}/{name}", self.config.report_directory);
         let destination = no_symlink_parents(self.root, &path)?;
-        if let Some(publication) = &self.publication {
-            publication.replace_file(&destination, bytes)?;
+        if self.published {
+            self.storage
+                .replace(&self.config.report_directory, name, bytes)?;
             return Ok(path);
         }
         fs::create_dir_all(
@@ -181,10 +187,10 @@ impl Inventory<'_> {
         }
         argv.push("--list".into());
         // Action IDs also name retained original files; validate before spawning.
-        chrono_harness::relative_path(action)?;
+        crate::files::relative_path(action)?;
         let label = format!("{action}{}", if ignored { "-ignored" } else { "" });
         let environment: BTreeMap<_, _> = std::env::vars().collect();
-        let executable = chrono_harness::resolve_program(
+        let executable = crate::files::resolve_program(
             self.root,
             program,
             environment.get("PATH").map(String::as_str),
@@ -294,52 +300,55 @@ pub fn execute(root: &Path, path: &str) -> Result<String, String> {
     if rows.len() != 1 || rows[0]["test_groups"] != json!(config.groups) {
         return Err("inventory group binding drift".into());
     }
-    let _caller = retention::read_scope(&root)?;
-    let mut publication = None;
-    if let Some(owner) = retention::Inventory::adopted(&root)?
-        .filter(|owner| owner.accepts("check-original", &format!("{}-", config.report_directory)))
-    {
+    let storage = Storage::open(&root, &crate::observed::installed(&root)?)?;
+    let published:bool=storage.call(json!({"operation":"accepts","producer":"check-original","path":format!("{}-",config.report_directory)}))?;
+    if published {
         let base = no_symlink_parents(&root, &config.report_directory)?;
         let parent = base.parent().ok_or("inventory report parent")?;
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         let prefix = base
             .file_name()
-            .and_then(|n| n.to_str())
+            .and_then(|f| f.to_str())
             .ok_or("inventory report basename")?;
-        let path = retention::unique_path(parent, &format!("{prefix}-"), "")?;
-        let relative = path
+        let relative = parent
             .strip_prefix(&root)
             .map_err(|e| e.to_string())?
             .to_str()
-            .ok_or("inventory report path UTF-8")?
-            .to_owned();
-        let original = owner.plan(
-            "check-original",
-            &relative,
-            true,
+            .ok_or("inventory parent UTF-8")?;
+        let (path, adopted) = storage.start(
+            relative,
+            &format!("{prefix}-"),
+            None,
             json!({"kind":"test-inventory","project":config.project,"status":"running"}),
         )?;
-        original.materialize()?;
-        config.report_directory = relative;
-        publication = Some(original);
+        if !adopted {
+            return Err("inventory retention policy disappeared".into());
+        }
+        config.report_directory = path;
     }
     let mut inventory = Inventory {
         root: &root,
         config,
         project: rows[0],
         receipts: Vec::new(),
-        publication,
+        storage,
+        published,
     };
     let mut result = inventory.collect(&config_bytes, &projects_bytes);
-    if let Some(publication) = inventory.publication.take() {
+    if inventory.published {
         let directory = &inventory.config.report_directory;
         let outcome = json!({"kind":"test-inventory","project":inventory.config.project,
             "status":listing_status(result.is_ok())});
-        let seal = publication.complete_sealed(outcome).and_then(|()| {
-            retention::Inventory::adopted(&root)?
-                .ok_or("inventory retention policy disappeared")?
-                .retain_diagnostic_path(directory)
-        });
+        let seal = inventory
+            .storage
+            .publication::<()>(
+                json!({"kind":"complete","path":directory,"outcome":outcome,"seal":true}),
+            )
+            .and_then(|()| {
+                inventory
+                    .storage
+                    .publication::<()>(json!({"kind":"retain-diagnostic","path":directory}))
+            });
         if let Err(error) = seal {
             let listing = result.err().map(|e| format!("{e}; ")).unwrap_or_default();
             return Err(format!(

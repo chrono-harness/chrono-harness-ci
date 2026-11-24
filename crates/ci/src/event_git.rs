@@ -119,12 +119,7 @@ impl EventGit {
         let parents = self.parents(workflow_revision)?;
         let base = parents.first().map(String::as_str).unwrap_or("");
         let second = parents.get(1).map(String::as_str).unwrap_or("");
-        if !chrono_harness::verified_identifiers::valid_merge_parents(
-            parents.len(),
-            base.as_bytes(),
-            second.as_bytes(),
-            head.as_bytes(),
-        ) {
+        if parents.len() != 2 || !full_oid(base) || !full_oid(head) || second != head {
             return Err("pull-request workflow revision must have exactly two parents and the event head as second parent".into());
         }
         Ok(parents[0].clone())

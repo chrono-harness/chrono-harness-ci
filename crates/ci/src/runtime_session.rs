@@ -3,34 +3,33 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Write},
+    os::{fd::OwnedFd, unix::net::UnixStream},
     path::Path,
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStdout, Stdio},
 };
 
 pub(crate) struct Session {
     child: Child,
-    input: Option<ChildStdin>,
+    pub(crate) socket: Option<UnixStream>,
     output: BufReader<ChildStdout>,
     name: &'static str,
 }
 impl Session {
     pub fn open(root: &Path, program: &Path, name: &'static str) -> Result<Self, String> {
-        let mut command = Command::new(program);
+        let (socket, input) = UnixStream::pair().map_err(|e| e.to_string())?;
+        let mut command = crate::storage::command(program)?;
         command
-            .arg("exec-with-descriptors-v1")
-            .arg(program)
             .arg(name)
             .current_dir(root)
-            .stdin(Stdio::piped())
+            .stdin(Stdio::from(OwnedFd::from(input)))
             .stdout(Stdio::piped());
         let mut child = command
             .spawn()
             .map_err(|e| format!("{} {name}: {e}", program.display()))?;
-        let input = child.stdin.take();
         let output = BufReader::new(child.stdout.take().expect("piped stdout"));
         Ok(Self {
             child,
-            input,
+            socket: Some(socket),
             output,
             name,
         })
@@ -50,9 +49,7 @@ impl Session {
 
     pub(crate) fn selected_config(root: &Path, runner: &str, path: &str) -> Result<Value, String> {
         let program = crate::units::installed_runner_path(root, runner)?;
-        let mut child = Command::new(&program)
-            .arg("exec-with-descriptors-v1")
-            .arg(&program)
+        let mut child = crate::storage::command(&program)?
             .arg("selected-host-config-v1")
             .current_dir(root)
             .stdin(Stdio::piped())
@@ -71,7 +68,7 @@ impl Session {
     }
 
     pub fn call<T: DeserializeOwned>(&mut self, command: Value) -> Result<T, String> {
-        let stdin = self.input.as_mut().unwrap();
+        let stdin = self.socket.as_mut().unwrap();
         serde_json::to_writer(&mut *stdin, &command).map_err(|e| e.to_string())?;
         stdin
             .write_all(b"\n")
@@ -88,7 +85,9 @@ impl Session {
             .map_err(|e| format!("E_PROTOCOL: {e}"))?
     }
     pub fn close(mut self) -> Result<(), String> {
-        drop(self.input.take());
+        if let Some(socket) = self.socket.take() {
+            let _ = socket.shutdown(std::net::Shutdown::Write);
+        }
         let status = self.child.wait().map_err(|e| e.to_string())?;
         if status.success() {
             Ok(())
@@ -99,7 +98,9 @@ impl Session {
 }
 impl Drop for Session {
     fn drop(&mut self) {
-        drop(self.input.take());
+        if let Some(socket) = self.socket.take() {
+            let _ = socket.shutdown(std::net::Shutdown::Write);
+        }
         let _ = self.child.wait();
     }
 }
