@@ -3,7 +3,7 @@ use super::{action, full_oid, output_preflight, scalar, shell, write_file};
 use crate::units::Scope;
 use crate::{
     codec::decode,
-    files::{file_identity, no_symlink_parents, relative_path, sha256},
+    files::{no_symlink_parents, relative_path, sha256},
     units::{self, path_overlap as overlap},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -296,23 +296,19 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
     let path = cfg["registries"]["judges"]
         .as_str()
         .ok_or("full judges registry")?;
-    #[derive(Deserialize)]
-    struct Binding {
-        id: String,
-        sha256: Option<String>,
-        executable: String,
-    }
     let registry: Value =
         decode(&fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?)?;
     let raw = registry.get("judges").ok_or("full judges")?;
-    crate::runtime_session::Session::query::<()>(
-        root,
-        runner,
-        "judge-evidence-v1",
-        json!({"operation":"validate-schedule","bindings":raw}),
-    )?;
-    let bindings: Vec<Binding> = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
-    let ids: std::collections::BTreeSet<_> = bindings.iter().map(|b| b.id.as_str()).collect();
+    let program = crate::units::installed_runner_path(root, runner)?;
+    let mut session = crate::runtime_session::Session::open(root, &program, "judge-evidence-v1")?;
+    session.call::<()>(json!({"operation":"validate-schedule","bindings":raw}))?;
+    let bindings = raw
+        .as_array()
+        .ok_or("full judge bindings must be an array")?;
+    let ids: std::collections::BTreeSet<_> = bindings
+        .iter()
+        .map(|binding| binding["id"].as_str().ok_or("full judge ID"))
+        .collect::<Result<_, _>>()?;
     if ids
         != [
             "registration",
@@ -328,21 +324,12 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
     {
         return Err("full provider requires all seven judge bindings".into());
     }
-    for binding in &bindings {
-        if binding.sha256.as_deref()
-            != Some(
-                file_identity(&no_symlink_parents(root, &binding.executable)?)?
-                    .0
-                    .as_str(),
-            )
-        {
-            return Err("full judge executable binding mismatch".into());
-        }
+    let mut pins = Vec::with_capacity(bindings.len());
+    for binding in bindings {
+        session.call::<String>(json!({"operation":"bound-judge-path","binding":binding}))?;
+        pins.push(json!({"id":binding["id"],"sha256":binding["sha256"]}));
     }
-    let pins: Vec<_> = bindings
-        .iter()
-        .map(|b| json!({"id":b.id,"sha256":b.sha256}))
-        .collect();
+    session.close()?;
     Ok(
         json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":crate::codec::digest(&pins)?,"judges":pins}),
     )
