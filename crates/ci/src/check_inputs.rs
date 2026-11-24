@@ -1,11 +1,12 @@
 //! The existing CI producer owns event preparation and declared local collection.
 use super::*;
-use chrono_harness::{
-    file_identity,
-    prepared::{self, Context, InputRequest, PreparedCheck, Selection},
-    sha256,
-    units::{FullManifest, FullReportInput, Manifest, ReportInput, Scope},
-    wire,
+use crate::preparation::{
+    self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
+};
+use crate::units::Scope;
+use crate::{
+    codec as wire,
+    files::{file_identity, sha256},
 };
 use std::{collections::BTreeMap, io::Read};
 
@@ -23,8 +24,8 @@ fn local_manifest(
     let pins = if full {
         super::full::executable_pins(&req.host_root, &req.profile, &c.collection.runner)?
     } else {
-        let profile = chrono_harness::load_config(&req.host_root.join(&req.profile))?;
-        let judge = chrono_harness::resolve_program(
+        let profile = units::scoped_profile(&req.host_root, c)?;
+        let judge = crate::files::resolve_program(
             &req.host_root,
             &profile.judge.program,
             profile.judge.env.get("PATH").map(String::as_str),
@@ -32,7 +33,11 @@ fn local_manifest(
         json!({"runner_sha256":units::installed_runner_sha256(&req.host_root, &c.collection.runner)?,"judge_sha256":file_identity(&judge)?.0})
     };
     let (query, report_limit) = if full {
-        let cfg = chrono_harness::load_selected_config(&req.host_root, &req.profile)?;
+        let cfg = crate::runtime_session::Session::selected_config(
+            &req.host_root,
+            &c.collection.runner,
+            &req.profile,
+        )?;
         let limit = cfg["execution_units"]["collection_limits"]["report_bytes"]
             .as_u64()
             .ok_or("full report bound")?;
@@ -60,46 +65,28 @@ fn local_manifest(
         let input = registered
             .get(&unit)
             .ok_or("required unit missing provider registration")?;
-        let raw =
-            chrono_harness::units::read_bounded(&req.host_root, &input.report_path, report_limit)
+        let digest: String =
+            crate::runtime_session::Session::query(&req.host_root, &c.collection.runner, "retained-artifacts-v1", json!({"operation":"bounded-file-sha256","path":input.report_path,"limit":report_limit}))
                 .map_err(|e| {
                 format!(
                     "missing/invalid registered unit report {unit} at {}: {e}",
                     input.report_path
                 )
             })?;
-        reports.push(FullReportInput {
-            unit,
-            path: input.report_path.clone(),
-            sha256: sha256(&raw),
-            runner_sha256: Some(pins["runner_sha256"].as_str().ok_or("runner pin")?.into()),
-            judge_sha256: Some(pins["judge_sha256"].as_str().ok_or("judge pin")?.into()),
-            artifacts: None,
-        });
+        reports.push(json!({
+            "unit": unit,
+            "path": input.report_path,
+            "sha256": digest,
+            "runner_sha256": pins["runner_sha256"].as_str().ok_or("runner pin")?,
+            "judge_sha256": pins["judge_sha256"].as_str().ok_or("judge pin")?
+        }));
     }
-    let manifest = if full {
-        serde_json::to_value(FullManifest {
-            schema: "chrono-full-collection/v1".into(),
-            reports,
-        })
-        .map_err(|e| e.to_string())?
+    let schema = if full {
+        "chrono-full-collection/v1"
     } else {
-        serde_json::to_value(Manifest {
-            schema: "chrono-ci-collection/v1".into(),
-            reports: reports
-                .into_iter()
-                .map(|r| ReportInput {
-                    unit: r.unit,
-                    path: r.path,
-                    sha256: r.sha256,
-                    runner_sha256: r.runner_sha256.unwrap(),
-                    judge_sha256: r.judge_sha256.unwrap(),
-                    artifacts: None,
-                })
-                .collect(),
-        })
-        .map_err(|e| e.to_string())?
+        "chrono-ci-collection/v1"
     };
+    let manifest = json!({"schema":schema,"reports":reports});
     let raw = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
     if p.scope
         != Some(Scope::Collect {
@@ -113,10 +100,11 @@ fn local_manifest(
         .map(|u| u.report_path.clone())
         .collect::<Vec<_>>();
     let profile = units::profile(&req.host_root, c)?;
-    chrono_harness::units::validate_collection_paths(
-        &c.gather.manifest_path,
-        &profile.report_path,
-        &unit_paths,
+    crate::runtime_session::Session::query::<()>(
+        &req.host_root,
+        &c.collection.runner,
+        "judge-evidence-v1",
+        json!({"operation":"collection-paths","manifest":c.gather.manifest_path,"report":profile.report_path,"units":unit_paths}),
     )?;
     publish(&req.host_root, &c.gather.manifest_path, &raw)?;
     let mut evidence = json!({"schema":"chrono-local-collection-inputs/v1","manifest_path":c.gather.manifest_path,"manifest_sha256":sha256(&raw),"manifest":manifest,"expected_executables":pins,"endpoint_evidence":p.evidence,"requirements":requirements});
@@ -167,12 +155,29 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         return Err("check input request exceeds bound".into());
     }
     let req: InputRequest = decode(&raw)?;
-    req.validate()?;
     let root = &req.host_root;
+    if !root.is_absolute()
+        || root.canonicalize().map_err(|e| e.to_string())?
+            != std::env::current_dir()
+                .and_then(|cwd| cwd.canonicalize())
+                .map_err(|e| e.to_string())?
+    {
+        return Err("invalid check input request/source/root".into());
+    }
     let config_bytes = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;
     let config: Value = decode(&config_bytes)?;
+    let program = match decode_projection(&config_bytes)? {
+        Projection::Units(c) => c.collection.runner,
+        Projection::Full(c) => c.runner,
+        Projection::Check(c) => c.runner,
+        Projection::Release(_) => {
+            return Err("release configuration cannot produce check inputs".into());
+        }
+    };
+    let program = program.as_str();
+    let mut retained_originals = Originals::open(root, program)?;
+    let dir = retained_originals.request_directory(&req)?;
     let mut originals = vec![];
-    let dir = prepared::retention_directory(&req);
     let p = if req.source == "local" {
         if req.selection != Selection::Collect {
             return Err("local CI producer only collects declared unit reports".into());
@@ -234,11 +239,13 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             let mut evidence = full::prepare(root, path, &c, bytes, &revision)?;
             let report_raw = fs::read(no_symlink_parents(root, &c.preparation_path)?)
                 .map_err(|e| e.to_string())?;
-            let original = prepared::retain_original(root, &dir, "full-inputs", &report_raw)?;
+            let original = retained_originals.retain(&dir, "full-inputs", &report_raw)?;
             evidence["preparation_original"] = json!(original);
             originals.push(original);
             let ctx = Context {
-                path: prepared::retain_original(root, &dir, "native-context", bytes)?.path,
+                path: retained_originals
+                    .retain(&dir, "native-context", bytes)?
+                    .path,
                 raw: bytes.to_vec(),
                 sha256: sha256(bytes),
                 semantic_digest: wire::digest(&decode::<Value>(bytes)?)?,
@@ -307,19 +314,19 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                 let retained = gathered["retained_report"]
                     .as_str()
                     .ok_or("gather original report missing")?;
-                let o = prepared::original(root, retained)?;
+                let o = retained_originals.identify(retained)?;
                 evidence["gather"] = json!(o);
                 originals.push(o);
                 let o: prepared::Original =
                     serde_json::from_value(gathered["result"]["manifest_original"].clone())
                         .map_err(|e| e.to_string())?;
-                prepared::read_original(root, &o, None)?;
+                retained_originals.verify(&o)?;
                 evidence["manifest"] = json!(o);
                 originals.push(o);
             }
             let context_raw =
                 fs::read(no_symlink_parents(root, &w.context_path)?).map_err(|e| e.to_string())?;
-            let o = prepared::retain_original(root, &dir, "native-context", &context_raw)?;
+            let o = retained_originals.retain(&dir, "native-context", &context_raw)?;
             evidence["context_original"] = json!(o);
             originals.push(o);
             let context = if let Some(contexts) = &c.full_contexts {
@@ -329,7 +336,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                 };
                 let raw = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;
                 let ctx = full::context_input(&raw)?;
-                let original = prepared::retain_original(root, &dir, "full-context", &raw)?;
+                let original = retained_originals.retain(&dir, "full-context", &raw)?;
                 Some(Context {
                     path: original.path,
                     sha256: sha256(&raw),
@@ -381,17 +388,17 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             let mut evidence = evidence;
             let context_raw =
                 fs::read(no_symlink_parents(root, &c.context_path)?).map_err(|e| e.to_string())?;
-            let o = prepared::retain_original(root, &dir, "native-context", &context_raw)?;
+            let o = retained_originals.retain(&dir, "native-context", &context_raw)?;
             evidence["context_original"] = json!(o);
             originals.push(o);
             (evidence, None, None)
         };
-        let payload = prepared::retain_original(root, &dir, "native-payload", &payload_raw)?;
+        let payload = retained_originals.retain(&dir, "native-payload", &payload_raw)?;
         evidence["payload"] = json!(payload);
         evidence["payload_input_path"] = json!(payload_path);
         originals.push(payload);
         if let Some(ctx) = &context {
-            originals.push(prepared::original(root, &ctx.path)?);
+            originals.push(retained_originals.identify(&ctx.path)?);
         }
         evidence["originals"] = json!(originals);
         PreparedCheck {
@@ -413,19 +420,20 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             originals,
         }
     };
-    let facts = chrono_harness::facts::Reader::for_config(root, &req.host_config)?;
-    facts.verify_config(root, &p.candidate)?;
-    if facts.blob(root, &p.candidate, path)? != config_bytes {
+    let facts =
+        crate::event_git::EventGit::open(root, program, &req.host_config, &p.candidate, false)?;
+    facts.verify_config(&p.candidate)?;
+    if facts.blob(&p.candidate, path)? != config_bytes {
         return Err("input producer configuration differs from candidate".into());
     }
     if let Some(binding) = &req.initial_profile {
-        if sha256(&facts.blob(root, &p.candidate, &binding.path)?) != binding.sha256 {
+        if sha256(&facts.blob(&p.candidate, &binding.path)?) != binding.sha256 {
             return Err("native initial profile differs from candidate".into());
         }
     }
+    facts.close()?;
     let mut p = p;
-    let report = prepared::retain_original(
-        root,
+    let report = retained_originals.retain(
         &dir,
         "ci-inputs",
         &serde_json::to_vec(&p.evidence).map_err(|e| e.to_string())?,
@@ -437,7 +445,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     if let Some(current) = current {
         p.evidence["current_observation"] = current;
     }
-    req.validate()?;
-    prepared::validate_result(&req, &p)?;
+    retained_originals.validate_result(&req, &p)?;
+    retained_originals.close()?;
     Ok(serde_json::to_string(&p).map_err(|e| e.to_string())? + "\n")
 }

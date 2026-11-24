@@ -13,7 +13,16 @@ pub fn single_check_cache(build_consumers: usize) -> (supported: bool)
 }
 
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{decode, no_symlink_parents, relative_path};
+use crate::{
+    codec::decode,
+    files::{no_symlink_parents, relative_path},
+};
+#[cfg(not(verus_keep_ghost))]
+mod codec;
+#[cfg(not(verus_keep_ghost))]
+mod files;
+#[cfg(not(verus_keep_ghost))]
+pub mod initial;
 #[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Deserializer, Serialize};
 #[cfg(not(verus_keep_ghost))]
@@ -41,11 +50,19 @@ pub mod inventory;
 #[cfg(not(verus_keep_ghost))]
 pub mod migrate;
 #[cfg(not(verus_keep_ghost))]
+mod observed;
+#[cfg(not(verus_keep_ghost))]
+mod preparation;
+#[cfg(not(verus_keep_ghost))]
 pub mod release;
 #[cfg(not(verus_keep_ghost))]
 mod requirements;
 #[cfg(not(verus_keep_ghost))]
+mod runtime_session;
+#[cfg(not(verus_keep_ghost))]
 pub mod startup;
+#[cfg(not(verus_keep_ghost))]
+mod storage;
 #[cfg(not(verus_keep_ghost))]
 pub mod units;
 #[cfg(not(verus_keep_ghost))]
@@ -109,7 +126,7 @@ pub struct Config {
 #[cfg(not(verus_keep_ghost))]
 pub struct InitialInventory {
     pub path: String,
-    pub profile: chrono_harness::initial::Profile,
+    pub profile: initial::Profile,
 }
 #[cfg(not(verus_keep_ghost))]
 fn inventory_present<'de, D: Deserializer<'de>>(
@@ -146,7 +163,7 @@ fn shell(s: &str) -> String {
 }
 #[cfg(not(verus_keep_ghost))]
 fn full_oid(s: &str) -> bool {
-    chrono_harness::verified_identifiers::valid_oid(s.as_bytes())
+    matches!(s.len(), 40 | 64) && s.bytes().any(|b| b != b'0') && crate::codec::lowercase_hex(s)
 }
 #[cfg(not(verus_keep_ghost))]
 fn action(s: &str, repo: &str) -> Result<(), String> {
@@ -343,11 +360,11 @@ pub fn render(c: &Config, config_path: &str) -> Result<String, String> {
 #[cfg(not(verus_keep_ghost))]
 fn render_header(
     c: &Config,
-    scope: Option<&chrono_harness::units::Scope>,
+    scope: Option<&crate::units::Scope>,
     read_actions: bool,
     marker: &str,
 ) -> String {
-    let manual_dispatch = if matches!(scope, Some(chrono_harness::units::Scope::Collect { .. })) {
+    let manual_dispatch = if matches!(scope, Some(crate::units::Scope::Collect { .. })) {
         ""
     } else {
         r#"  workflow_dispatch:
@@ -392,7 +409,7 @@ on:
 fn render_job(
     c: &Config,
     config_path: &str,
-    scope: Option<&chrono_harness::units::Scope>,
+    scope: Option<&crate::units::Scope>,
     artifact_prefix: &str,
     full_policy: bool,
 ) -> Result<String, String> {
@@ -413,12 +430,12 @@ fn render_job(
     let check = {
         let suffix = match scope {
             None => String::new(),
-            Some(chrono_harness::units::Scope::Unit { unit }) => {
+            Some(crate::units::Scope::Unit { unit }) => {
                 format!(" '--unit' {}", shell(unit))
             }
-            Some(chrono_harness::units::Scope::Collect { .. }) => " '--collect'".into(),
+            Some(crate::units::Scope::Collect { .. }) => " '--collect'".into(),
         };
-        let credentials = if matches!(scope, Some(chrono_harness::units::Scope::Collect { .. })) {
+        let credentials = if matches!(scope, Some(crate::units::Scope::Collect { .. })) {
             "          GH_TOKEN: ${{ github.token }}\n"
         } else {
             ""
@@ -480,8 +497,8 @@ fn render_job(
     };
     let rendered = if c.retention_delivery {
         let selected = match scope {
-            Some(chrono_harness::units::Scope::Unit { unit }) => unit.as_str(),
-            Some(chrono_harness::units::Scope::Collect { .. }) => "collect",
+            Some(crate::units::Scope::Unit { unit }) => unit.as_str(),
+            Some(crate::units::Scope::Collect { .. }) => "collect",
             None => "all",
         };
         format!(
@@ -735,7 +752,7 @@ fn prepare_policy_fixed(
                             } else {
                                 "configured push baseline requires refs/heads/... ref"
                             })?;
-                        facts.git(&["check-ref-format", reference])?;
+                        facts.check_ref(reference)?;
                         Some(reference)
                     } else {
                         None
@@ -803,7 +820,7 @@ fn prepare_policy_fixed(
         if let Some(base) = &base {
             facts.require_commit(base)?
         }
-        if facts.git(&["rev-parse", "HEAD"])?.trim() != candidate {
+        if facts.head()?.trim() != candidate {
             return Err("checkout is not exact event candidate".into());
         }
         if initial && !facts.parents(&candidate)?.is_empty() {
@@ -819,7 +836,8 @@ fn prepare_policy_fixed(
     })();
     match result {
         Ok(mut context) => {
-            facts.record(&mut context);
+            facts.record(&mut context)?;
+            facts.close()?;
             Ok(context)
         }
         Err(error) => Err(facts.error(error)),

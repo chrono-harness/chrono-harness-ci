@@ -19,7 +19,10 @@ pub fn unit_evidence_retention(days: Option<u16>, is_unit: bool) -> (retention: 
 #[cfg(not(verus_keep_ghost))]
 use super::*;
 #[cfg(not(verus_keep_ghost))]
-use chrono_harness::{file_identity, sha256, wire};
+use crate::{
+    codec as wire,
+    files::{file_identity, sha256},
+};
 #[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -490,7 +493,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     }
     let event = env("GITHUB_EVENT_NAME")?;
     let payload =
-        chrono_harness::json(&fs::read(env("GITHUB_EVENT_PATH")?).map_err(|e| e.to_string())?)?;
+        crate::codec::json(&fs::read(env("GITHUB_EVENT_PATH")?).map_err(|e| e.to_string())?)?;
     let revision = env("CHRONO_WORKFLOW_REVISION")?;
     let context = super::prepare_policy(
         root,
@@ -509,9 +512,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         c.collection.check_config.as_str(),
         c.collection.workflow_path.as_str(),
     ] {
-        if facts
-            .git(&["show", &format!("{candidate}:{input}")])?
-            .as_bytes()
+        if facts.show(candidate, input)?.as_bytes()
             != fs::read(root.join(input)).map_err(|e| e.to_string())?
         {
             return Err(format!(
@@ -520,10 +521,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         }
     }
     facts.require_commit(&revision)?;
-    let source = facts.git(&[
-        "show",
-        &format!("{revision}:{}", c.collection.workflow_path),
-    ])?;
+    let source = facts.show(&revision, &c.collection.workflow_path)?;
     if source.as_bytes()
         != fs::read(root.join(&c.collection.workflow_path)).map_err(|e| e.to_string())?
     {

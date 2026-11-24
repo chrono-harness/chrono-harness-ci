@@ -1,10 +1,10 @@
 //! Fixed full-governance context transport; the configured judges own admission.
 use super::{action, full_oid, output_preflight, scalar, shell, write_file};
-use chrono_harness::{
-    decode,
-    facts::Reader,
-    file_identity, no_symlink_parents, relative_path, sha256,
-    units::{self, Scope, overlap},
+use crate::units::Scope;
+use crate::{
+    codec::decode,
+    files::{file_identity, no_symlink_parents, relative_path, sha256},
+    units::{self, path_overlap as overlap},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
@@ -292,20 +292,26 @@ pub(crate) fn context_input(bytes: &[u8]) -> Result<Value, String> {
     Ok(ctx)
 }
 pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result<Value, String> {
-    let cfg = chrono_harness::load_selected_config(root, config)?;
+    let cfg = crate::runtime_session::Session::selected_config(root, runner, config)?;
     let path = cfg["registries"]["judges"]
         .as_str()
         .ok_or("full judges registry")?;
-    let bindings: Vec<chrono_harness::wire::Binding> = decode::<Value>(
-        &fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?,
-    )?["judges"]
-        .clone()
-        .as_array()
-        .ok_or("full judges")?
-        .iter()
-        .map(|b| serde_json::from_value(b.clone()).map_err(|e| e.to_string()))
-        .collect::<Result<_, _>>()?;
-    chrono_harness::full::schedule(&bindings)?;
+    #[derive(Deserialize)]
+    struct Binding {
+        id: String,
+        sha256: Option<String>,
+        executable: String,
+    }
+    let registry: Value =
+        decode(&fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?)?;
+    let raw = registry.get("judges").ok_or("full judges")?;
+    crate::runtime_session::Session::query::<()>(
+        root,
+        runner,
+        "judge-evidence-v1",
+        json!({"operation":"validate-schedule","bindings":raw}),
+    )?;
+    let bindings: Vec<Binding> = serde_json::from_value(raw.clone()).map_err(|e| e.to_string())?;
     let ids: std::collections::BTreeSet<_> = bindings.iter().map(|b| b.id.as_str()).collect();
     if ids
         != [
@@ -338,7 +344,7 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
         .map(|b| json!({"id":b.id,"sha256":b.sha256}))
         .collect();
     Ok(
-        json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":chrono_harness::wire::digest(&pins)?,"judges":pins}),
+        json!({"runner_sha256":super::units::installed_runner_sha256(root, runner)?,"judge_sha256":crate::codec::digest(&pins)?,"judges":pins}),
     )
 }
 /// Preserve caller context bytes separately from transport observations. Does not judge its policy.
@@ -362,33 +368,29 @@ pub fn prepare(
     if serde_json::to_value(c).map_err(|e| e.to_string())? != decode::<Value>(&source)? {
         return Err("full CI source differs from selected configuration".into());
     }
-    let facts = Reader::for_config_observed(root, &c.check_config).map_err(|e| {
-        format!(
-            "E_FULL_CI_GIT: {}",
-            json!({"message":e.message,"git_facts":e.observation})
-        )
-    })?;
-    if !facts.is_bound() {
+    let facts = crate::event_git::EventGit::open(root, &c.runner, &c.check_config, candidate, true)
+        .map_err(|error| format!("E_FULL_CI_GIT: {error}"))?;
+    if !facts.bound {
         return Err("full CI requires candidate full config v3 Git binding".into());
     }
     let result = (|| {
-        facts.verify_config(root, candidate)?;
-        if facts.git(root, &["rev-parse", "HEAD"])? != format!("{candidate}\n").as_bytes() {
+        facts.verify_config(candidate)?;
+        if facts.head()? != format!("{candidate}\n") {
             return Err("full CI checkout is not supplied candidate".into());
         }
-        if facts.blob(root, candidate, path)? != source {
+        if facts.blob(candidate, path)? != source {
             return Err("full CI source differs from fixed candidate".into());
         }
         // Acquisition never replaces or derives caller context fields.
         for oid in [base, workflow_revision] {
-            if !facts.commit_available(root, oid)? {
-                facts.git(root, &["fetch", "--no-tags", "origin", oid])?;
+            if !facts.available(oid)? {
+                facts.fetch(oid, false)?;
             }
-            if !facts.commit_available(root, oid)? {
+            if !facts.available(oid)? {
                 return Err("full CI fixed commit remains missing".into());
             }
         }
-        if facts.blob(root, workflow_revision, &c.workflow_path)? != render(c, path)?.as_bytes() {
+        if facts.blob(workflow_revision, &c.workflow_path)? != render(c, path)?.as_bytes() {
             return Err("full CI workflow revision differs from declared projection".into());
         }
         let report = json!({"schema":"chrono-full-ci-inputs/v1","status":"prepared",
@@ -400,19 +402,24 @@ pub fn prepare(
     let mut report: Value = result.map_err(|message: String| {
         format!(
             "E_FULL_CI_GIT: {}",
-            json!({"message":message,"git_facts":facts.observation()})
+            match facts.observation() {
+                Ok(observation) => json!({"message":message,"git_facts":observation}),
+                Err(error) => json!({"message":message,"observation_error":error}),
+            }
         )
     })?;
-    let original = chrono_harness::prepared::retain_original(
-        root,
+    let mut retained = crate::preparation::Originals::open(root, &c.runner)?;
+    let original = retained.retain(
         &format!("{}preparation/", c.artifact_directory),
         "native-context",
         context,
     )?;
+    retained.close()?;
     report["context"]["current_path"] = json!(c.context_path);
     report["context"]["path"] = json!(original.path);
     report["originals"] = json!([original]);
-    report["git_facts"] = facts.observation();
+    report["git_facts"] = facts.observation()?;
+    facts.close()?;
     if fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())? != source {
         return Err("full CI source changed during preparation".into());
     }

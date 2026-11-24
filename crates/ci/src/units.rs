@@ -1,18 +1,62 @@
 //! Explicit units scheduled as jobs within one parent workflow.
 use super::*;
-use chrono_harness::{
-    file_identity,
-    units::{Scope, Unit},
-};
+use crate::files::file_identity;
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Scope {
+    Unit { unit: String },
+    Collect { manifest: String },
+}
+
+impl Scope {
+    pub(crate) fn short_argv(&self) -> Vec<String> {
+        match self {
+            Self::Unit { unit } => vec!["--unit".into(), unit.clone()],
+            Self::Collect { .. } => vec!["--collect".into()],
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Unit {
+    pub tests: Vec<String>,
+    pub report_path: String,
+}
+
+pub(crate) fn valid_id(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
+}
+pub(crate) fn id(s: &str) -> Result<(), String> {
+    valid_id(s)
+        .then_some(())
+        .ok_or_else(|| format!("invalid CI unit ID: {s:?}"))
+}
+pub(crate) fn artifact_path(path: &str) -> Result<(), String> {
+    relative_path(path)?;
+    if !path.starts_with(".chrono-harness/state/") {
+        return Err(
+            "unit reports and collection manifests must reside in .chrono-harness/state/".into(),
+        );
+    }
+    Ok(())
+}
+pub(crate) fn path_overlap(a: &str, b: &str) -> bool {
+    let (a, b) = (Path::new(a), Path::new(b));
+    a.starts_with(b) || b.starts_with(a)
+}
 
 pub const SCHEMA: &str = "chrono-github-units/v1";
 pub const FULL_SCHEMA: &str = "chrono-github-units/v2";
 
-/// Hash the configured runner, including a file linked to the host's package manager.
+/// Locate the configured runner, including a file linked to the host's package manager.
 /// Parent directories are part of the host checkout and must be real directories.
-pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
-    chrono_harness::relative_path(runner)?;
+pub(crate) fn installed_runner_path(root: &Path, runner: &str) -> Result<PathBuf, String> {
+    crate::files::relative_path(runner)?;
     let path = Path::new(runner);
     if let Some(parent) = path
         .parent()
@@ -21,7 +65,10 @@ pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, Stri
     {
         no_symlink_parents(root, parent)?;
     }
-    Ok(file_identity(&root.join(path))?.0)
+    Ok(root.join(path))
+}
+pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
+    Ok(file_identity(&installed_runner_path(root, runner)?)?.0)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -150,9 +197,9 @@ pub fn validate(c: &Config) -> Result<(), String> {
                 inputs.push((path, c.workflow(Some(id))?));
             }
             for (path, workflow) in inputs {
-                chrono_harness::units::artifact_path(path)?;
+                crate::units::artifact_path(path)?;
                 if !Path::new(path).starts_with(&workflow.artifact_directory)
-                    || chrono_harness::units::overlap(path, &workflow.context_path)
+                    || crate::units::path_overlap(path, &workflow.context_path)
                 {
                     return Err("full context must be a separate declared upload input".into());
                 }
@@ -177,7 +224,7 @@ pub fn validate(c: &Config) -> Result<(), String> {
         for input in std::iter::once(&contexts.collection).chain(contexts.units.values()) {
             if outputs
                 .iter()
-                .any(|output| chrono_harness::units::overlap(input, output))
+                .any(|output| crate::units::path_overlap(input, output))
             {
                 return Err("full context overlaps provider publication".into());
             }
@@ -186,7 +233,7 @@ pub fn validate(c: &Config) -> Result<(), String> {
         for unit in c.units.values() {
             if roots
                 .iter()
-                .any(|root| chrono_harness::units::overlap(&unit.artifact_directory, root))
+                .any(|root| crate::units::path_overlap(&unit.artifact_directory, root))
             {
                 return Err("full units require separate upload ownership".into());
             }
@@ -198,19 +245,20 @@ pub fn validate(c: &Config) -> Result<(), String> {
     let mut names = BTreeSet::from([c.collection.name.clone()]);
     let mut contexts = BTreeSet::from([c.collection.context_path.clone()]);
     for (id, unit) in &c.units {
-        chrono_harness::units::id(id)?;
+        crate::units::id(id)?;
         super::validate_policy(&c.workflow(Some(id))?, c.schema == FULL_SCHEMA)?;
         if !names.insert(unit.name.clone()) || !contexts.insert(unit.context_path.clone()) {
             return Err("unit job name/context collision".into());
         }
     }
-    chrono_harness::validate_command(&chrono_harness::CommandSpec {
+    crate::observed::CommandSpec {
         program: c.gather.program.clone(),
         args: vec![],
         env: BTreeMap::new(),
         timeout_seconds: c.gather.timeout_seconds,
         output_limit_bytes: c.gather.output_limit_bytes,
-    })?;
+    }
+    .validate()?;
     let inherited: BTreeSet<_> = c.gather.inherit_environment.iter().collect();
     let credentials: BTreeSet<_> = c.gather.credential_environment.iter().collect();
     if inherited.len() != c.gather.inherit_environment.len()
@@ -244,7 +292,7 @@ pub fn validate(c: &Config) -> Result<(), String> {
         }
     }
     for path in [&c.gather.manifest_path, &c.gather.report_path] {
-        chrono_harness::units::artifact_path(path)?;
+        crate::units::artifact_path(path)?;
         if !path.starts_with(&c.collection.artifact_directory) || !contexts.insert(path.clone()) {
             return Err(
                 "collection output collision or outside uploaded artifact directory".into(),
@@ -254,7 +302,7 @@ pub fn validate(c: &Config) -> Result<(), String> {
     if !c.gather.download_directory.ends_with('/') {
         return Err("download_directory must end /".into());
     }
-    chrono_harness::units::artifact_path(c.gather.download_directory.trim_end_matches('/'))?;
+    crate::units::artifact_path(c.gather.download_directory.trim_end_matches('/'))?;
     if !c
         .gather
         .download_directory
@@ -268,16 +316,42 @@ pub fn validate(c: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub(super) struct ScopedProfile {
+    pub schema: String,
+    pub judge: crate::observed::CommandSpec,
+    pub units: Value,
+    pub report_path: String,
+    pub retained_reference: bool,
+}
+pub(super) fn scoped_profile(root: &Path, c: &Config) -> Result<ScopedProfile, String> {
+    crate::runtime_session::Session::query(
+        root,
+        &c.collection.runner,
+        "retained-artifacts-v1",
+        json!({"operation":"scoped-check-profile","path":c.collection.check_config}),
+    )
+}
+
 pub(super) struct Profile {
     pub units: BTreeMap<String, Unit>,
     pub report_path: String,
-    pub judge: Option<chrono_harness::CommandSpec>,
+    pub judge: Option<crate::observed::CommandSpec>,
 }
 pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
     let profile = if c.schema == FULL_SCHEMA {
-        let raw = chrono_harness::load_selected_config(root, &c.collection.check_config)?;
-        let block = chrono_harness::units::full_execution_units(&raw)?
-            .ok_or("full provider requires registered full units")?;
+        let raw = crate::runtime_session::Session::selected_config(
+            root,
+            &c.collection.runner,
+            &c.collection.check_config,
+        )?;
+        let block: Option<Value> = crate::runtime_session::Session::query(
+            root,
+            &c.collection.runner,
+            "judge-evidence-v1",
+            json!({"operation":"full-execution-units","profile":raw}),
+        )?;
+        let block = block.ok_or("full provider requires registered full units")?;
         Profile {
             units: serde_json::from_value(block["units"].clone()).map_err(|e| e.to_string())?,
             report_path: block["report_path"]
@@ -287,14 +361,12 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
             judge: None,
         }
     } else {
-        let profile =
-            chrono_harness::load_config(&no_symlink_parents(root, &c.collection.check_config)?)?;
-        if profile.schema != chrono_harness::units::PROFILE {
+        let profile = scoped_profile(root, c)?;
+        if profile.schema != "chrono-ci-check/v3" {
             return Err("v1 unit provider requires chrono-ci-check/v3".into());
         }
         Profile {
-            units: serde_json::from_value(profile.policy["units"].clone())
-                .map_err(|e| e.to_string())?,
+            units: serde_json::from_value(profile.units).map_err(|e| e.to_string())?,
             report_path: profile.report_path,
             judge: Some(profile.judge),
         }
@@ -304,9 +376,9 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
         return Err("workflow units differ from check profile assignments".into());
     }
     for (id, unit) in units {
-        chrono_harness::units::artifact_path(&unit.report_path)?;
+        crate::units::artifact_path(&unit.report_path)?;
         if !Path::new(&unit.report_path).starts_with(&c.units[id].artifact_directory)
-            || chrono_harness::units::overlap(&unit.report_path, &c.units[id].context_path)
+            || crate::units::path_overlap(&unit.report_path, &c.units[id].context_path)
         {
             return Err("unit report must be uploaded and separate from context".into());
         }
@@ -319,16 +391,16 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
             &c.gather.download_directory,
         ]
         .iter()
-        .any(|path| chrono_harness::units::overlap(path, &profile.report_path))
+        .any(|path| crate::units::path_overlap(path, &profile.report_path))
     {
         return Err("collection report collides with provider outputs".into());
     }
     if let Some(contexts) = &c.full_contexts {
         for input in std::iter::once(&contexts.collection).chain(contexts.units.values()) {
-            if chrono_harness::units::overlap(input, &profile.report_path)
+            if crate::units::path_overlap(input, &profile.report_path)
                 || units
                     .values()
-                    .any(|u| chrono_harness::units::overlap(input, &u.report_path))
+                    .any(|u| crate::units::path_overlap(input, &u.report_path))
             {
                 return Err("full context overlaps check report publication".into());
             }
@@ -471,9 +543,7 @@ fn prepare_scope(
     let candidate = candidate_owned.as_str();
     let facts = event_git::EventGit::new(root, &w, candidate)?;
     for input in [path, w.check_config.as_str(), w.workflow_path.as_str()] {
-        if facts
-            .git(&["show", &format!("{candidate}:{input}")])?
-            .as_bytes()
+        if facts.show(candidate, input)?.as_bytes()
             != fs::read(root.join(input)).map_err(|e| e.to_string())?
         {
             return Err(format!(
@@ -482,7 +552,7 @@ fn prepare_scope(
         }
     }
     let pins = if let Some(judge) = &profile.judge {
-        let judge = chrono_harness::resolve_program(root, &judge.program, None)?;
+        let judge = crate::files::resolve_program(root, &judge.program, None)?;
         json!({"runner_sha256":installed_runner_sha256(root, &w.runner)?,"judge_sha256":file_identity(&judge)?.0})
     } else {
         super::full::executable_pins(root, &w.check_config, &w.runner)?
@@ -502,7 +572,7 @@ fn prepare_scope(
         {
             return Err("exact full context disagrees with automatic event endpoints".into());
         }
-        context["full_context"] = json!({"path":path,"sha256":chrono_harness::sha256(&raw),"semantic_digest":chrono_harness::wire::digest(&ctx)?});
+        context["full_context"] = json!({"path":path,"sha256":crate::files::sha256(&raw),"semantic_digest":crate::codec::digest(&ctx)?});
     }
     Ok(context)
 }

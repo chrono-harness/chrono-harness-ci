@@ -1,6 +1,9 @@
 //! Obtain DELTA and retained-original decisions from the installed adjudicator.
 use super::*;
-use chrono_harness::{CommandSpec, file_identity, resolve_program, run_process_observed_for};
+use crate::{
+    files::{file_identity, resolve_program},
+    observed::CommandSpec,
+};
 use std::time::Duration;
 
 pub(crate) fn request(
@@ -13,8 +16,7 @@ pub(crate) fn request(
     let (program, path) = match &config.requirements_program {
         Some(program) => (program.as_str(), None),
         None if config.schema == units::SCHEMA => {
-            let path = no_symlink_parents(root, &config.collection.check_config)?;
-            installed = chrono_harness::load_config(&path)?.judge;
+            installed = units::scoped_profile(root, config)?.judge;
             (
                 installed.program.as_str(),
                 installed.env.get("PATH").map(String::as_str),
@@ -40,8 +42,9 @@ pub(crate) fn request(
     };
     query["profile"] = json!(config.collection.check_config);
     let input = serde_json::to_vec(&query).map_err(|e| e.to_string())?;
-    let result = run_process_observed_for(
+    let result = crate::observed::run(
         root,
+        &root.join(&config.collection.runner),
         &command,
         &input,
         &file_identity(&executable)?.0,
@@ -54,7 +57,7 @@ pub(crate) fn request(
         return Err(format!(
             "requirements-v1 exited {}: {}",
             result.exit_code,
-            result.stderr.trim_end()
+            String::from_utf8_lossy(&result.stderr_bytes).trim_end()
         ));
     }
     decode(&result.stdout_bytes)
