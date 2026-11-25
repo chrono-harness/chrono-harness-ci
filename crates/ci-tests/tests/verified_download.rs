@@ -20,6 +20,41 @@ fn expect_true(actual: bool)
     if !actual { panic!(); }
 }
 
+#[cfg(verus_keep_ghost)]
+fn reappearing_on_a_different_page_is_ambiguous<P: policy::ArtifactPage>(
+    pages: &[P], name: &str, first: usize, later: usize, first_row: usize, later_row: usize,
+)
+    requires first < later, later < pages.len(),
+        first_row < pages@[first as int].names().len(), later_row < pages@[later as int].names().len(),
+        pages@[first as int].names()[first_row as int] == Some(name@),
+        pages@[later as int].names()[later_row as int] == Some(name@),
+{
+    let hit = policy::unique_artifact(pages, name);
+    assert(policy::present(pages@,name@,first as int,first_row as int));
+    assert(policy::present(pages@,name@,later as int,later_row as int));
+    assert(hit is None);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn the_observed_run_head_id_and_url_gate_download() {
+    use policy::{admit_artifact, ArtifactError};
+    proof { reveal_strlit("different"); reveal_strlit("head"); reveal_strlit("url");
+        assert("different"@.len() != "head"@.len());
+        assert("different"@.len() != "url"@.len()); }
+    let admitted = admit_artifact(Some(false),Some(9),9,Some("head"),"head",Some(7),Some("url"),"url");
+    let expired = admit_artifact(Some(true),Some(9),9,Some("head"),"head",Some(7),None,"url");
+    let run = admit_artifact(Some(false),Some(8),9,Some("head"),"head",None,None,"url");
+    let head = admit_artifact(Some(false),Some(9),9,Some("different"),"head",Some(7),None,"url");
+    let id = admit_artifact(Some(false),Some(9),9,Some("head"),"head",Some(0),None,"url");
+    let url = admit_artifact(Some(false),Some(9),9,Some("head"),"head",Some(7),Some("different"),"url");
+    expect_true(admitted.is_ok());
+    expect_true(matches!(expired,Err(ArtifactError::Identity)));
+    expect_true(matches!(run,Err(ArtifactError::Identity)));
+    expect_true(matches!(head,Err(ArtifactError::Identity)));
+    expect_true(matches!(id,Err(ArtifactError::MissingId)));
+    expect_true(matches!(url,Err(ArtifactError::Endpoint)));
+}
+
 proof fn parsed_result_is_unique(bytes: Seq<u8>, left: Option<u16>, right: Option<u16>)
     requires policy::parsed(bytes, left), policy::parsed(bytes, right),
     ensures left == right,

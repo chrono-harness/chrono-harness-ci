@@ -10,6 +10,18 @@ use std::{
     time::{Duration, Instant},
 };
 
+struct ArtifactPage<'a>(&'a [Value]);
+
+impl crate::verified_download::ArtifactPage for ArtifactPage<'_> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn name(&self, i: usize) -> Option<&str> {
+        self.0[i]["name"].as_str()
+    }
+}
+
 struct AcquisitionBudget {
     deadline: Instant,
     stdout_remaining: usize,
@@ -147,34 +159,44 @@ impl<'a> Transport<'a> {
         name: &str,
         candidate: &str,
     ) -> Result<(), String> {
-        let mut found = Vec::new();
-        for page in pages.as_array().ok_or("artifact metadata pages missing")? {
-            for artifact in page["artifacts"]
-                .as_array()
-                .ok_or("artifact metadata list missing")?
-            {
-                if artifact["name"] == name {
-                    found.push(artifact);
-                }
+        use crate::verified_download::{ArtifactError, admit_artifact, unique_artifact};
+
+        let pages = pages
+            .as_array()
+            .ok_or("artifact metadata pages missing")?
+            .iter()
+            .map(|page| {
+                page["artifacts"]
+                    .as_array()
+                    .map(|rows| ArtifactPage(rows))
+                    .ok_or("artifact metadata list missing")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let identity = "artifact missing/ambiguous/expired or run/source binding differs";
+        let (page, row) = unique_artifact(&pages, name).ok_or(identity)?;
+        let artifact = &pages[page].0[row];
+        let id = artifact["id"].as_u64();
+        let url = id.map(|id| {
+            format!("https://api.github.com/repos/{repository}/actions/artifacts/{id}/zip")
+        });
+        admit_artifact(
+            artifact["expired"].as_bool(),
+            artifact["workflow_run"]["id"].as_u64(),
+            run,
+            artifact["workflow_run"]["head_sha"].as_str(),
+            candidate,
+            id,
+            artifact["archive_download_url"].as_str(),
+            url.as_deref().unwrap_or(""),
+        )
+        .map_err(|cause| {
+            match cause {
+                ArtifactError::Identity => identity,
+                ArtifactError::MissingId => "artifact ID missing",
+                ArtifactError::Endpoint => "artifact archive endpoint differs from selected ID",
             }
-        }
-        if found.len() != 1
-            || found[0]["expired"] != false
-            || found[0]["workflow_run"]["id"] != run
-            || found[0]["workflow_run"]["head_sha"] != candidate
-        {
-            return Err("artifact missing/ambiguous/expired or run/source binding differs".into());
-        }
-        let id = found[0]["id"]
-            .as_u64()
-            .filter(|n| *n > 0)
-            .ok_or("artifact ID missing")?;
-        if found[0]["archive_download_url"]
-            != format!("https://api.github.com/repos/{repository}/actions/artifacts/{id}/zip")
-        {
-            return Err("artifact archive endpoint differs from selected ID".into());
-        }
-        Ok(())
+            .into()
+        })
     }
 
     fn download(

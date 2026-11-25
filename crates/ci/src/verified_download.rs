@@ -4,7 +4,123 @@ use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
+use vstd::contrib::exec_spec::ExecSpecEq;
+
 verus! {
+
+/// A page borrows the provider rows. The native adapter exposes only their names.
+pub trait ArtifactPage {
+    spec fn names(&self) -> Seq<Option<Seq<char>>>;
+
+    fn len(&self) -> (n: usize)
+        ensures n == self.names().len();
+    fn name(&self, i: usize) -> (name: Option<&str>)
+        requires i < self.names().len(),
+        ensures match name {
+            Some(value) => self.names()[i as int] == Some(value@),
+            None => self.names()[i as int] is None,
+        };
+}
+
+pub open spec fn present<P: ArtifactPage>(pages: Seq<P>, name: Seq<char>, p: int, r: int) -> bool {
+    0 <= p < pages.len() && 0 <= r < pages[p].names().len() && pages[p].names()[r] == Some(name)
+}
+
+pub open spec fn unique<P: ArtifactPage>(pages: Seq<P>, name: Seq<char>, p: int, r: int) -> bool {
+    present(pages,name,p,r) && forall|a:int,b:int| #[trigger] present(pages,name,a,b) ==> a == p && b == r
+}
+
+/// Search in provider order without copying a row or allocating one entry per artifact.
+pub fn unique_artifact<P: ArtifactPage>(pages: &[P], name: &str) -> (selected: Option<(usize,usize)>)
+    ensures
+        match selected {
+            Some((p,r)) => unique(pages@,name@,p as int,r as int),
+            None => forall|p:int,r:int| !(#[trigger] unique(pages@,name@,p,r)),
+        },
+{
+    let mut found: Option<(usize,usize)> = None;
+    let mut p = 0;
+    while p < pages.len()
+        invariant p <= pages.len(),
+            forall|a:int,b:int| a < p && #[trigger] present(pages@,name@,a,b) ==>
+                (found is Some && found.unwrap().0 as int == a && found.unwrap().1 as int == b),
+            match found {
+                Some((a,b)) => a < p && present(pages@,name@,a as int,b as int),
+                None => true,
+            },
+        decreases pages.len()-p,
+    {
+        let page = &pages[p];
+        let len = page.len();
+        let mut r = 0;
+        while r < len
+            invariant p < pages.len(), page == &pages@[p as int], len == page.names().len(), r <= len,
+                forall|a:int,b:int| (a < p || a == p && b < r)
+                    && #[trigger] present(pages@,name@,a,b) ==> (found is Some && found.unwrap().0 as int == a && found.unwrap().1 as int == b),
+                match found {
+                    Some((a,b)) => (a < p || a == p && b < r) && present(pages@,name@,a as int,b as int),
+                    None => true,
+                },
+            decreases len-r,
+        {
+            if let Some(value) = page.name(r) {
+                if <&str>::exec_eq(value,name) {
+                    if let Some((a,b)) = found {
+                        proof {
+                            assert(present(pages@,name@,p as int,r as int));
+                            assert forall|x:int,y:int| !(#[trigger] unique(pages@,name@,x,y)) by {
+                                if unique(pages@,name@,x,y) {
+                                    assert(present(pages@,name@,a as int,b as int));
+                                    assert(present(pages@,name@,p as int,r as int));
+                                }
+                            }
+                        }
+                        return None;
+                    }
+                    found = Some((p,r));
+                }
+            }
+            r += 1;
+        }
+        p += 1;
+    }
+    proof {
+        match found {
+            Some((page,row)) => {
+                assert forall|a:int,b:int| #[trigger] present(pages@,name@,a,b)
+                    implies a == page && b == row by { }
+                assert(unique(pages@,name@,page as int,row as int));
+            }
+            None => { assert forall|a:int,b:int| !(#[trigger] unique(pages@,name@,a,b)) by {
+                if unique(pages@,name@,a,b) { assert(present(pages@,name@,a,b)); }
+            } }
+        }
+    }
+    found
+}
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum ArtifactError { Identity, MissingId, Endpoint }
+
+/// The adapter constructs the canonical GitHub URL using the observed numeric ID.
+pub fn admit_artifact(expired: Option<bool>, observed_run: Option<u64>, run: u64,
+    observed_head: Option<&str>, head: &str, id: Option<u64>, observed_url: Option<&str>, url: &str)
+    -> (result: Result<(),ArtifactError>)
+    ensures ({
+        let same_head = match observed_head { Some(text) => text@ == head@, None => false };
+        let same_url = match observed_url { Some(text) => text@ == url@, None => false };
+        if expired != Some(false) || observed_run != Some(run) || !same_head { result is Err && result.unwrap_err() is Identity }
+        else if id is None || id == Some(0u64) { result is Err && result.unwrap_err() is MissingId }
+        else if !same_url { result is Err && result.unwrap_err() is Endpoint }
+        else { result is Ok }
+    }),
+{
+    if expired != Some(false) || observed_run != Some(run)
+        || !matches!(observed_head, Some(value) if <&str>::exec_eq(value,head)) { return Err(ArtifactError::Identity); }
+    if id.is_none() || id == Some(0u64) { return Err(ArtifactError::MissingId); }
+    if !matches!(observed_url, Some(value) if <&str>::exec_eq(value,url)) { return Err(ArtifactError::Endpoint); }
+    Ok(())
+}
 
 pub open spec fn token_at(bytes: Seq<u8>, i: int) -> bool {
     0 <= i && i + 8 < bytes.len()
