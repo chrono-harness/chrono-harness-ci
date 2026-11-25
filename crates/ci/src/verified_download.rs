@@ -43,7 +43,7 @@ pub fn unique_artifact<P: ArtifactPage>(pages: &[P], name: &str) -> (selected: O
     while p < pages.len()
         invariant p <= pages.len(),
             forall|a:int,b:int| a < p && #[trigger] present(pages@,name@,a,b) ==>
-                found == Some((a as usize,b as usize)),
+                (found is Some && found.unwrap().0 as int == a && found.unwrap().1 as int == b),
             match found {
                 Some((a,b)) => a < p && present(pages@,name@,a as int,b as int),
                 None => true,
@@ -56,7 +56,7 @@ pub fn unique_artifact<P: ArtifactPage>(pages: &[P], name: &str) -> (selected: O
         while r < len
             invariant p < pages.len(), page == &pages@[p as int], len == page.names().len(), r <= len,
                 forall|a:int,b:int| (a < p || a == p && b < r)
-                    && #[trigger] present(pages@,name@,a,b) ==> found == Some((a as usize,b as usize)),
+                    && #[trigger] present(pages@,name@,a,b) ==> (found is Some && found.unwrap().0 as int == a && found.unwrap().1 as int == b),
                 match found {
                     Some((a,b)) => (a < p || a == p && b < r) && present(pages@,name@,a as int,b as int),
                     None => true,
@@ -83,6 +83,18 @@ pub fn unique_artifact<P: ArtifactPage>(pages: &[P], name: &str) -> (selected: O
             r += 1;
         }
         p += 1;
+    }
+    proof {
+        match found {
+            Some((page,row)) => {
+                assert forall|a:int,b:int| #[trigger] present(pages@,name@,a,b)
+                    implies a == page && b == row by { }
+                assert(unique(pages@,name@,page as int,row as int));
+            }
+            None => { assert forall|a:int,b:int| !(#[trigger] unique(pages@,name@,a,b)) by {
+                if unique(pages@,name@,a,b) { assert(present(pages@,name@,a,b)); }
+            } }
+        }
     }
     found
 }
