@@ -1,19 +1,78 @@
 //! The existing CI producer owns event preparation and declared local collection.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+
+pub const REQUEST_LIMIT: usize = 64 * 1024 * 1024;
+
+pub fn paired_arguments(count: usize) -> (valid: bool)
+    ensures valid == (count >= 3 && count % 2 == 1),
+{
+    count >= 3 && count % 2 == 1
+}
+
+pub fn admissible_option(flag: &str, already_present: bool) -> (valid: bool)
+    ensures valid == (!already_present && (flag@ == "--config"@ || flag@ == "--event-env"@
+        || flag@ == "--payload-env"@ || flag@ == "--revision-env"@ || flag@ == "--repository-env"@)),
+{
+    !already_present && (<&str>::exec_eq(flag, "--config") || <&str>::exec_eq(flag, "--event-env")
+        || <&str>::exec_eq(flag, "--payload-env") || <&str>::exec_eq(flag, "--revision-env")
+        || <&str>::exec_eq(flag, "--repository-env"))
+}
+
+pub fn config_argument<'a>(selected: Option<&'a str>) -> (path: Result<&'a str, &'static str>)
+    ensures match (selected, path) {
+        (Some(input), Ok(output)) => input@ == output@,
+        (None, Err(message)) => message@ == "input producer --config missing"@,
+        _ => false,
+    },
+{
+    match selected { Some(path) => Ok(path), None => Err("input producer --config missing") }
+}
+
+pub fn bounded_request(bytes: usize) -> (valid: bool)
+    ensures valid == (bytes <= 67108864),
+{
+    bytes <= REQUEST_LIMIT
+}
+
+// Only an absolute supplied path may be observed against the current directory.
+pub fn source_root<F>(absolute: bool, compare: F) -> (out: Result<bool, String>)
+    where F: FnOnce() -> Result<bool, String>,
+    requires compare.requires(()),
+    ensures if absolute { compare.ensures((), out) } else { out == Ok::<bool, String>(false) },
+{
+    if absolute { compare() } else { Ok(false) }
+}
+
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::preparation::{
     self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
 };
+#[cfg(not(verus_keep_ghost))]
 use crate::units::Scope;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     codec as wire,
     files::{file_identity, sha256},
 };
+#[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, io::Read};
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn publish(root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
     super::write_file(root, path, bytes)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn local_manifest(
     req: &InputRequest,
     c: &units::Config,
@@ -115,6 +174,7 @@ fn local_manifest(
     }
     Ok(evidence)
 }
+#[cfg(not(verus_keep_ghost))]
 fn named_env(opts: &BTreeMap<&str, &str>, flag: &str) -> Result<String, String> {
     let key = opts
         .get(flag)
@@ -124,44 +184,37 @@ fn named_env(opts: &BTreeMap<&str, &str>, flag: &str) -> Result<String, String> 
     }
     std::env::var(key).map_err(|_| format!("missing/non-UTF8 native input {key}"))
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     let mut opts = BTreeMap::new();
-    if args.len() < 3 || args.len() % 2 != 1 {
+    if !paired_arguments(args.len()) {
         return Err("check-inputs requires declared paired arguments".into());
     }
     for pair in args[1..].chunks_exact(2) {
-        if ![
-            "--config",
-            "--event-env",
-            "--payload-env",
-            "--revision-env",
-            "--repository-env",
-        ]
-        .contains(&pair[0].as_str())
-            || opts.insert(pair[0].as_str(), pair[1].as_str()).is_some()
-        {
+        let flag = pair[0].as_str();
+        if !admissible_option(flag, opts.contains_key(flag)) {
             return Err("unknown/duplicate input producer argument".into());
         }
+        opts.insert(flag, pair[1].as_str());
     }
-    let path = *opts
-        .get("--config")
-        .ok_or("input producer --config missing")?;
+    let path = config_argument(opts.get("--config").copied())?;
     let mut raw = Vec::new();
     std::io::stdin()
-        .take(64 * 1024 * 1024 + 1)
+        .take(REQUEST_LIMIT as u64 + 1)
         .read_to_end(&mut raw)
         .map_err(|e| e.to_string())?;
-    if raw.len() > 64 * 1024 * 1024 {
+    if !bounded_request(raw.len()) {
         return Err("check input request exceeds bound".into());
     }
     let req: InputRequest = decode(&raw)?;
     let root = &req.host_root;
-    if !root.is_absolute()
-        || root.canonicalize().map_err(|e| e.to_string())?
-            != std::env::current_dir()
-                .and_then(|cwd| cwd.canonicalize())
-                .map_err(|e| e.to_string())?
-    {
+    if !source_root(root.is_absolute(), || {
+        let supplied = root.canonicalize().map_err(|e| e.to_string())?;
+        let cwd = std::env::current_dir()
+            .and_then(|cwd| cwd.canonicalize())
+            .map_err(|e| e.to_string())?;
+        Ok(supplied == cwd)
+    })? {
         return Err("invalid check input request/source/root".into());
     }
     let config_bytes = fs::read(no_symlink_parents(root, path)?).map_err(|e| e.to_string())?;

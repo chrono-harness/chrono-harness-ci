@@ -21,7 +21,7 @@ cargo fmt --check --manifest-path crates/ci/Cargo.toml
 product=crates/ci/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
 cargo fmt --check --manifest-path crates/ci-tests/Cargo.toml
-cargo test --locked --manifest-path crates/ci-tests/Cargo.toml
+CHRONO_TEST_CI="$CARGO_TARGET_DIR/debug/chrono-ci" cargo test --locked --manifest-path crates/ci-tests/Cargo.toml
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
   exit 1
@@ -36,7 +36,7 @@ metadata=$(jq -ers --arg manifest "$(pwd -P)/$product" '
 filename=${metadata##*/}
 stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
-chrono-host-bootstrap check-compiler-sources native "$stem" src/verified_literals.rs src/cache.rs src/downloads.rs src/gating.rs \
+chrono-host-bootstrap check-compiler-sources native "$stem" src/check_inputs.rs src/verified_literals.rs src/cache.rs src/downloads.rs src/gating.rs \
   src/release.rs src/lib.rs src/startup.rs src/verified_download.rs \
   src/verified_inventory.rs src/inventory.rs src/full.rs src/cache_action.rs src/gather.rs ||
   coverage_failure "native library differs from required sources"
@@ -53,7 +53,7 @@ literals_tests_operation=verify.ci-literals-tests
 inventory_tests_operation=verify.ci-inventory-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_operation.rlib" "$src/verified_literals.rs" \
-  "$src/cache_action.rs" "$src/cache.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
+  "$src/cache_action.rs" "$src/cache.rs" "$src/check_inputs.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
   "$src/startup.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$inventory_operation.rlib" "$src/verified_inventory.rs" \
@@ -62,7 +62,7 @@ chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-pro
   "$include/verified_download.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
   "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
-  "$include/verified_literals.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/downloads.rs" "$include/gating.rs" \
+  "$include/verified_literals.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/check_inputs.rs" "$include/downloads.rs" "$include/gating.rs" \
   "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
   "$support/../worktree/support/diagnostic_copy.rs" "$support/startup.rs"

@@ -6,6 +6,9 @@ pub mod cache_action;
 #[path = "cache.rs"]
 pub mod cache_projection;
 #[cfg(verus_keep_ghost)]
+#[path = "check_inputs.rs"]
+pub mod check_inputs;
+#[cfg(verus_keep_ghost)]
 #[path = "downloads.rs"]
 pub mod download_projection;
 #[cfg(verus_keep_ghost)]

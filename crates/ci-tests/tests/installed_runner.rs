@@ -102,3 +102,94 @@ fn pull_request_selection_uses_the_observed_first_parent() {
         }
     }
 }
+
+#[test]
+fn native_check_inputs_admits_paired_workflow_arguments_and_bounded_requests() {
+    use std::io::{Seek, Write};
+    use std::os::unix::fs::symlink;
+    use std::process::{Command, Stdio};
+
+    let root = tempfile::tempdir().unwrap();
+    let host = root.path().join("host");
+    let alias = root.path().join("alias");
+    std::fs::create_dir_all(host.join(".chrono-harness/ci")).unwrap();
+    symlink(&host, &alias).unwrap();
+    std::fs::write(host.join(".chrono-harness/ci/units.json"), b"?").unwrap();
+    let args = [
+        "--config",
+        ".chrono-harness/ci/units.json",
+        "--event-env",
+        "GITHUB_EVENT_NAME",
+        "--payload-env",
+        "GITHUB_EVENT_PATH",
+        "--revision-env",
+        "CHRONO_WORKFLOW_REVISION",
+        "--repository-env",
+        "GITHUB_REPOSITORY",
+    ];
+    let check = |flags: &[&str], request: &[u8], diagnostic: &str| {
+        let mut stdin = tempfile::tempfile().unwrap();
+        stdin.write_all(request).unwrap();
+        stdin.rewind().unwrap();
+        let output = Command::new(std::env::var_os("CHRONO_TEST_CI").unwrap())
+            .current_dir(&host)
+            .arg("check-inputs")
+            .args(flags)
+            .env_clear()
+            .stdin(Stdio::from(stdin))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let message = std::str::from_utf8(&output.stderr).unwrap();
+        assert!(
+            message.starts_with("E_CI: ") && message.contains(diagnostic),
+            "{flags:?}: {message}"
+        );
+    };
+    check(&[], b"", "check-inputs requires declared paired arguments");
+    check(
+        &["--config"],
+        b"",
+        "check-inputs requires declared paired arguments",
+    );
+    check(
+        &["--other", "x"],
+        b"",
+        "unknown/duplicate input producer argument",
+    );
+    for pair in args.chunks_exact(2) {
+        let mut duplicate = args.to_vec();
+        duplicate.extend(pair);
+        check(&duplicate, b"", "unknown/duplicate input producer argument");
+    }
+    check(&args[2..], b"", "input producer --config missing");
+    let original = include_str!("fixtures/native-check-input.json");
+    let recorded_root = "/home/runner/work/chrono-harness-example/chrono-harness-example";
+    let relative = original.replace(recorded_root, ".");
+    let root_error = "invalid check input request/source/root";
+    check(&args, relative.as_bytes(), root_error);
+    check(
+        &args,
+        original
+            .replace(recorded_root, root.path().to_str().unwrap())
+            .as_bytes(),
+        root_error,
+    );
+    // A canonical alias reaches config decoding after the root check.
+    check(
+        &args,
+        original
+            .replace(recorded_root, alias.to_str().unwrap())
+            .as_bytes(),
+        "expected value",
+    );
+    let limit = 64 * 1024 * 1024;
+    let mut padded = relative.into_bytes();
+    padded.resize(limit - 1, b' ');
+    check(&args, &padded, root_error);
+    padded.push(b' ');
+    check(&args, &padded, root_error);
+    padded.push(b' ');
+    check(&args, &padded, "check input request exceeds bound");
+}
