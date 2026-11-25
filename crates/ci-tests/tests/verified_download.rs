@@ -38,7 +38,9 @@ fn reappearing_on_a_different_page_is_ambiguous<P: policy::ArtifactPage>(
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn the_observed_run_head_id_and_url_gate_download() {
     use policy::{admit_artifact, ArtifactError};
-    proof { reveal_strlit("different"); reveal_strlit("head"); reveal_strlit("url"); }
+    proof { reveal_strlit("different"); reveal_strlit("head"); reveal_strlit("url");
+        assert("different"@.len() != "head"@.len());
+        assert("different"@.len() != "url"@.len()); }
     let admitted = admit_artifact(Some(false),Some(9),9,Some("head"),"head",Some(7),Some("url"),"url");
     let expired = admit_artifact(Some(true),Some(9),9,Some("head"),"head",Some(7),None,"url");
     let run = admit_artifact(Some(false),Some(8),9,Some("head"),"head",None,None,"url");
