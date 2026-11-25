@@ -98,14 +98,14 @@ pub fn admit_artifact(expired: Option<bool>, observed_run: Option<u64>, run: u64
         let same_head = match observed_head { Some(text) => text@ == head@, None => false };
         let same_url = match observed_url { Some(text) => text@ == url@, None => false };
         if expired != Some(false) || observed_run != Some(run) || !same_head { result is Err && result.unwrap_err() is Identity }
-        else if id is None || id == Some(0) { result is Err && result.unwrap_err() is MissingId }
+        else if id is None || id == Some(0u64) { result is Err && result.unwrap_err() is MissingId }
         else if !same_url { result is Err && result.unwrap_err() is Endpoint }
         else { result is Ok }
     }),
 {
     if expired != Some(false) || observed_run != Some(run)
         || !matches!(observed_head, Some(value) if <&str>::exec_eq(value,head)) { return Err(ArtifactError::Identity); }
-    if id.is_none() || id == Some(0) { return Err(ArtifactError::MissingId); }
+    if id.is_none() || id == Some(0u64) { return Err(ArtifactError::MissingId); }
     if !matches!(observed_url, Some(value) if <&str>::exec_eq(value,url)) { return Err(ArtifactError::Endpoint); }
     Ok(())
 }
