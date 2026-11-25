@@ -15,6 +15,14 @@
       "root": "crates/ci",
       "test_project": "ci-tests",
       "actions": {
+        "prepare_proof_directory": {
+          "operation": "prepare.ci-proof-directory",
+          "tool": "bash",
+          "argv": [
+            "-c",
+            "mkdir -p -- .chrono-harness/state/ci-proofs/"
+          ]
+        },
         "verify_literals": {
           "operation": "verify.ci-literals",
           "tool": "verus",
@@ -26,10 +34,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-literals.rlib,dep-info=.chrono-harness/state/verify.ci-literals.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-literals.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-literals.rlib.d",
             "crates/ci/src/verified_literals.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-literals.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-literals.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -48,10 +56,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-downloads.rlib,dep-info=.chrono-harness/state/verify.ci-downloads.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-downloads.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-downloads.rlib.d",
             "crates/ci/src/verified_download.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-downloads.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-downloads.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -70,10 +78,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-inventory.rlib,dep-info=.chrono-harness/state/verify.ci-inventory.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-inventory.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-inventory.rlib.d",
             "crates/ci/src/verified_inventory.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-inventory.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-inventory.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -111,10 +119,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-downloads-tests.rlib,dep-info=.chrono-harness/state/verify.ci-downloads-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-downloads-tests.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-downloads-tests.rlib.d",
             "crates/ci-tests/tests/verified_download.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-downloads-tests.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-downloads-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -133,10 +141,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-literals-tests.rlib,dep-info=.chrono-harness/state/verify.ci-literals-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-literals-tests.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-literals-tests.rlib.d",
             "crates/ci-tests/tests/verified_literals.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-literals-tests.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-literals-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {
@@ -155,10 +163,10 @@
             "2",
             "--output-json",
             "--compile",
-            "--emit=link=.chrono-harness/state/verify.ci-inventory-tests.rlib,dep-info=.chrono-harness/state/verify.ci-inventory-tests.rlib.d",
+            "--emit=link=.chrono-harness/state/ci-proofs/verify.ci-inventory-tests.rlib,dep-info=.chrono-harness/state/ci-proofs/verify.ci-inventory-tests.rlib.d",
             "crates/ci-tests/tests/verified_inventory.rs",
             "-o",
-            ".chrono-harness/state/verify.ci-inventory-tests.rlib",
+            ".chrono-harness/state/ci-proofs/verify.ci-inventory-tests.rlib",
             "-Zchecksum-hash-algorithm=sha256"
           ],
           "output_contract": {

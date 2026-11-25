@@ -11,8 +11,9 @@ if [[ $# -ne 1 || $1 != --native ]]; then
   echo 'usage: ./check.sh [--native]' >&2
   exit 2
 fi
-mkdir -p target
-scratch=$(mktemp -d "$(pwd -P)/target/check.XXXXXXXX")
+scratch_root=$(pwd -P)/.chrono-harness/state/native-check
+mkdir -p "$scratch_root"
+scratch=$(mktemp -d "$scratch_root/check.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT
 export TMPDIR="$scratch"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$scratch/cargo}"
@@ -51,19 +52,19 @@ downloads_tests_operation=verify.ci-downloads-tests
 literals_tests_operation=verify.ci-literals-tests
 inventory_tests_operation=verify.ci-inventory-tests
 
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_operation.rlib" "$src/verified_literals.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_operation.rlib" "$src/verified_literals.rs" \
   "$src/cache_action.rs" "$src/cache.rs" "$src/downloads.rs" "$src/gating.rs" "$src/release.rs" "$src/lib.rs" \
   "$src/startup.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downloads_operation.rlib" "$src/verified_download.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$inventory_operation.rlib" "$src/verified_inventory.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs"
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$inventory_operation.rlib" "$src/verified_inventory.rs" \
   "$src/inventory.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$downloads_tests_operation.rlib" "$tests/verified_download.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" \
   "$include/verified_download.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
   "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
   "$include/verified_literals.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/downloads.rs" "$include/gating.rs" \
   "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
   "$support/../worktree/support/diagnostic_copy.rs" "$support/startup.rs"
-chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/$inventory_tests_operation.rlib" "$tests/verified_inventory.rs" \
+chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$inventory_tests_operation.rlib" "$tests/verified_inventory.rs" \
   "$support/inventory.rs" "$include/verified_inventory.rs" "$include/inventory.rs"

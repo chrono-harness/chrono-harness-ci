@@ -27,3 +27,15 @@
 | `verified_inventory.rs` | `test-inventory` 校验真实测试程序的列表、忽略项和分组，核对分组非空、互不重叠、并集等于完整清单。`ci-tests/tests/verified_inventory.rs` 核对列表与集合的边界。 |
 
 上述证明处理进程所返回的数据。GitHub 的传输、宿主选择的测试程序、它的列表输出和实际文件内容由各自的生产者提供，宿主验收须核对那些原件。
+
+## 本仓本地检查的清理
+
+开发者运行 `mise exec -- ./check.sh` 时，工作树租约覆盖整个检查。准备输入和原报告写入 `.chrono-harness/state/preparation/`，单元结果在 `.chrono-harness/state/ci/`，汇总在 `.chrono-harness/state/collection/`。证明编译库和依赖清单进入 `ci-proofs/`，保留至原生检查读取完毕并交接回执，原生构建使用专属的 `native-check/` 临时目录。需要保留的结果应在当日清理前复制到持久存储。
+
+完成工具安装后，可在主检出的用户 crontab 中登记每日 03:00 的滚动维护。将下方两个绝对路径替换为主检出和本机 `command -v mise` 的实际值。
+
+```cron
+0 3 * * * cd '/path/to/chrono-harness-ci' && '/path/to/mise' exec -- chrono-worktree maintain --host-root . --config .chrono-harness/worktree.json
+```
+
+同一日历批次共用截止时刻。调度器在运行且取得排他租约时回收已登记的空闲目录。首次登记前已有的目录需要核对、转存并显式接管。普通任务工作树在超过 24 小时且唯一源码已保全后可整树回收；仍在使用的原件继续保管。工作树日志和处置报告在一天的窗口及当前使用方结束后滚动。工具包位于 mise 共享安装目录，本仓的 bin/ 只保存链接。
