@@ -77,6 +77,22 @@
       }
     },
     {
+      "path": ".chrono-harness/cleanup.json",
+      "owner": "host",
+      "surface": "product",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
+    },
+    {
       "path": ".chrono-harness/config.json",
       "owner": "host",
       "surface": "product",
@@ -1123,6 +1139,7 @@
   "execution_plans": {
     "test:ci-tests": {
       "operations": [
+        "prepare.ci-proof-directory",
         "verify.ci-literals",
         "verify.ci-downloads",
         "verify.ci-inventory",
