@@ -44,7 +44,7 @@ pub fn bounded_request(bytes: usize) -> (valid: bool)
 pub fn source_root<F>(absolute: bool, compare: F) -> (out: Result<bool, String>)
     where F: FnOnce() -> Result<bool, String>,
     requires compare.requires(()),
-    ensures if absolute { compare.ensures((), out) } else { out == Ok(false) },
+    ensures if absolute { compare.ensures((), out) } else { out == Ok::<bool, String>(false) },
 {
     if absolute { compare() } else { Ok(false) }
 }

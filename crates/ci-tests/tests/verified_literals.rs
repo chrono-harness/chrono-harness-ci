@@ -54,7 +54,7 @@ fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Optio
     let bound = bounded_request(n);
     assert(bound == (n < 67108865));
     let observed = source_root(absolute, || Ok::<bool,String>(same));
-    assert(observed == Ok(absolute && same));
+    assert(observed == Ok::<bool, String>(absolute && same));
 }
 
 #[cfg(verus_keep_ghost)]
