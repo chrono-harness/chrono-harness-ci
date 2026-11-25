@@ -339,6 +339,18 @@
       ]
     },
     {
+      "path": "crates/ci-tests/tests/fixtures/native-check-input.json",
+      "owner": "ci-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:ci-tests"
+        }
+      ]
+    },
+    {
       "path": "crates/ci-tests/tests/installed_runner.rs",
       "owner": "ci-tests",
       "surface": "test",

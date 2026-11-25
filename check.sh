@@ -21,7 +21,7 @@ cargo fmt --check --manifest-path crates/ci/Cargo.toml
 product=crates/ci/Cargo.toml
 cargo build --locked --message-format=json-render-diagnostics --manifest-path "$product" > "$scratch/build.jsonl"
 cargo fmt --check --manifest-path crates/ci-tests/Cargo.toml
-cargo test --locked --manifest-path crates/ci-tests/Cargo.toml
+CHRONO_TEST_CI="$CARGO_TARGET_DIR/debug/chrono-ci" cargo test --locked --manifest-path crates/ci-tests/Cargo.toml
 coverage_failure() {
   echo "E_VERUS_COVERAGE: $*" >&2
   exit 1

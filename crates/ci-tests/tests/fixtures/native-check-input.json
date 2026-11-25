@@ -1,0 +1,21 @@
+{
+  "effective_config": ".chrono-harness/config.json",
+  "effective_config_sha256": "32e9d2e77618c73b9fdd8d4e6f0a510a361cbb4455e5a679e7c8b9cb1f86f89e",
+  "host_config": ".chrono-harness/config.json",
+  "host_config_sha256": "32e9d2e77618c73b9fdd8d4e6f0a510a361cbb4455e5a679e7c8b9cb1f86f89e",
+  "host_root": "/home/runner/work/chrono-harness-example/chrono-harness-example",
+  "native_artifacts": {
+    "config_path": ".chrono-harness/ci/units.json",
+    "config_sha256": "14c149e79b78feb893faf5b9af7abcce99ad84c63787e9e616f41715318eeef2",
+    "directory": ".chrono-harness/state/harness/"
+  },
+  "prepared": null,
+  "profile": ".chrono-harness/ci/check.json",
+  "profile_sha256": "0883b8f7991017dccdd7a11fba0a222aaca293c59444f66931b4100569fa1b6c",
+  "schema": "chrono-check-input-request/v1",
+  "selection": {
+    "kind": "unit",
+    "unit": "harness"
+  },
+  "source": "ci"
+}
