@@ -78,7 +78,7 @@ pub fn full_oid(value: &str) -> (valid: bool)
 /// Git returns parents in order; the event head must be the second parent.
 pub fn pull_request_base<'a>(parents: &'a [String], head: &str) -> (base: Option<&'a str>)
     ensures
-        (base is Some) == (parents.len() == 2 && object_id(parents@[0].spec_bytes())
+        (base is Some) == (parents.len() == 2 && object_id(vstd::utf8::encode_utf8(parents@[0]@))
             && object_id(head.spec_bytes()) && parents@[1]@ == head@),
         base is Some ==> base.unwrap()@ == parents@[0]@,
 {

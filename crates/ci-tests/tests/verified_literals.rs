@@ -41,7 +41,7 @@ verus! {
 #[cfg(verus_keep_ghost)]
 fn a_two_parent_event_selects_only_the_first_parent(parents: &[String], head: &str)
     requires parents.len() == 2,
-        policy::object_id(parents@[0].spec_bytes()), policy::object_id(head.spec_bytes()),
+        policy::object_id(vstd::utf8::encode_utf8(parents@[0]@)), policy::object_id(head.spec_bytes()),
         parents@[1]@ == head@,
 {
     let selected = policy::pull_request_base(parents, head);
