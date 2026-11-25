@@ -164,9 +164,7 @@ fn shell(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\"'\"'"))
 }
 #[cfg(not(verus_keep_ghost))]
-fn full_oid(s: &str) -> bool {
-    matches!(s.len(), 40 | 64) && s.bytes().any(|b| b != b'0') && crate::codec::lowercase_hex(s)
-}
+use verified_literals::full_oid;
 #[cfg(not(verus_keep_ghost))]
 fn action(s: &str, repo: &str) -> Result<(), String> {
     let prefix = format!("{repo}@");

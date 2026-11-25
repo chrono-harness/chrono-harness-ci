@@ -35,6 +35,62 @@ verus! {
 
 pub enum NativeJobState { Succeeded, ReadDetail { id: u64 }, Rejected }
 
+pub open spec fn hex_digit(b: u8) -> bool {
+    48 <= b <= 57 || 97 <= b <= 102
+}
+
+/// None marks a non-hex byte; otherwise report whether the sequence is nonzero.
+pub fn hex_content(bytes: &[u8]) -> (result: Option<bool>)
+    ensures
+        (result is Some) == (forall|i: int| 0 <= i < bytes.len() ==> hex_digit(#[trigger] bytes@[i])),
+        result is Some ==> result.unwrap() == (exists|i: int| 0 <= i < bytes.len() && bytes@[i] != 48),
+{
+    let mut nonzero = false;
+    let mut i = 0;
+    while i < bytes.len()
+        invariant
+            i <= bytes.len(),
+            forall|j: int| 0 <= j < i ==> hex_digit(#[trigger] bytes@[j]),
+            nonzero == (exists|j: int| 0 <= j < i && bytes@[j] != 48),
+        decreases bytes.len() - i,
+    {
+        let b = bytes[i];
+        if !(48 <= b && b <= 57 || 97 <= b && b <= 102) { return None; }
+        if b != 48 { nonzero = true; }
+        i += 1;
+    }
+    Some(nonzero)
+}
+
+pub open spec fn object_id(bytes: Seq<u8>) -> bool {
+    (bytes.len() == 40 || bytes.len() == 64)
+        && (forall|i: int| 0 <= i < bytes.len() ==> hex_digit(#[trigger] bytes[i]))
+        && (exists|i: int| 0 <= i < bytes.len() && bytes[i] != 48)
+}
+
+pub fn full_oid(value: &str) -> (valid: bool)
+    ensures valid == object_id(value.spec_bytes()),
+{
+    let bytes = value.as_bytes();
+    (bytes.len() == 40 || bytes.len() == 64) && matches!(hex_content(bytes), Some(true))
+}
+
+/// Git returns parents in order; the event head must be the second parent.
+pub fn pull_request_base<'a>(parents: &'a [String], head: &str) -> (base: Option<&'a str>)
+    ensures
+        (base is Some) == (parents.len() == 2 && object_id(parents@[0].spec_bytes())
+            && object_id(head.spec_bytes()) && parents@[1]@ == head@),
+        base is Some ==> base.unwrap()@ == parents@[0]@,
+{
+    if parents.len() != 2 { return None; }
+    let base = parents[0].as_str();
+    if full_oid(base) && full_oid(head) && <&str>::exec_eq(parents[1].as_str(), head) {
+        Some(base)
+    } else {
+        None
+    }
+}
+
 pub open spec fn optional_text_is(value: Option<&str>, expected: &str) -> bool {
     match value { Some(value) => value@ == expected@, None => false }
 }

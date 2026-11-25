@@ -26,10 +26,6 @@ pub fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
     ))
 }
 
-pub(crate) fn lowercase_hex(s: &str) -> bool {
-    s.bytes()
-        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
 pub(crate) fn is_digest(s: &str) -> bool {
-    s.len() == 64 && lowercase_hex(s)
+    s.len() == 64 && crate::verified_literals::hex_content(s.as_bytes()).is_some()
 }

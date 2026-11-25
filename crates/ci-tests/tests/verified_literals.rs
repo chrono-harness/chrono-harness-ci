@@ -39,6 +39,24 @@ use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn a_two_parent_event_selects_only_the_first_parent(parents: &[String], head: &str)
+    requires parents.len() == 2,
+        policy::object_id(parents@[0].spec_bytes()), policy::object_id(head.spec_bytes()),
+        parents@[1]@ == head@,
+{
+    let selected = policy::pull_request_base(parents, head);
+    assert(selected matches Some(base) && base@ == parents@[0]@);
+}
+
+#[cfg(verus_keep_ghost)]
+fn wrong_ancestry_cannot_supply_a_delta_baseline(parents: &[String], head: &str)
+    requires parents.len() != 2 || parents@[1]@ != head@,
+{
+    let selected = policy::pull_request_base(parents, head);
+    assert(selected is None);
+}
+
+#[cfg(verus_keep_ghost)]
 fn cache_actions_require_the_same_registered_jobs_and_distinct_outputs() {
     use policy::cache_action as action;
     proof {

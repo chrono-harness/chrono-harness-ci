@@ -76,3 +76,29 @@ fn repeated_nested_members_are_rejected_before_projection() {
     let error = chrono_ci::load(&path).unwrap_err();
     assert!(error.contains("duplicate JSON member name"), "{error}");
 }
+
+#[test]
+fn pull_request_selection_uses_the_observed_first_parent() {
+    use chrono_ci::verified_literals::pull_request_base;
+
+    for width in [40, 64] {
+        let base = "a".repeat(width);
+        let head = "b".repeat(width);
+        let parents = vec![base.clone(), head.clone()];
+        assert_eq!(pull_request_base(&parents, &head), Some(base.as_str()));
+        for rejected in [
+            vec![],
+            vec![base.clone()],
+            vec![base.clone(), head.clone(), base.clone()],
+            vec![head.clone(), base.clone()],
+            vec!["0".repeat(width), head.clone()],
+            vec!["A".repeat(width), head.clone()],
+        ] {
+            assert_eq!(pull_request_base(&rejected, &head), None);
+        }
+        for malformed in ["a".repeat(39), "0".repeat(width), "G".repeat(width)] {
+            let parents = vec![base.clone(), malformed.clone()];
+            assert_eq!(pull_request_base(&parents, &malformed), None);
+        }
+    }
+}

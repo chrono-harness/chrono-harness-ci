@@ -117,12 +117,9 @@ impl EventGit {
     ) -> Result<String, String> {
         self.require_commit(workflow_revision)?;
         let parents = self.parents(workflow_revision)?;
-        let base = parents.first().map(String::as_str).unwrap_or("");
-        let second = parents.get(1).map(String::as_str).unwrap_or("");
-        if parents.len() != 2 || !full_oid(base) || !full_oid(head) || second != head {
-            return Err("pull-request workflow revision must have exactly two parents and the event head as second parent".into());
-        }
-        Ok(parents[0].clone())
+        crate::verified_literals::pull_request_base(&parents, head)
+            .map(str::to_owned)
+            .ok_or_else(|| "pull-request workflow revision must have exactly two parents and the event head as second parent".into())
     }
     pub(crate) fn close(self) -> Result<(), String> {
         self.runtime.into_inner().close()
