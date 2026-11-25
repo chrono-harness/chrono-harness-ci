@@ -53,7 +53,10 @@ fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Optio
     }
     let bound = bounded_request(n);
     assert(bound == (n < 67108865));
-    let observed = source_root(absolute, || Ok::<bool,String>(same));
+    let compare = || -> (result: Result<bool, String>)
+        ensures result == Ok::<bool, String>(same),
+    { Ok(same) };
+    let observed = source_root(absolute, compare);
     assert(observed == Ok::<bool, String>(absolute && same));
 }
 
