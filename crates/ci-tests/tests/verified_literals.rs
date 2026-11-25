@@ -39,6 +39,25 @@ use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Option<&str>, absolute: bool, same: bool) {
+    use policy::check_inputs::*;
+    let paired = paired_arguments(n);
+    assert(paired == (n > 1 && n % 2 != 0));
+    let accepted = admissible_option(flag, seen);
+    assert(accepted == (!seen && (flag@ == "--event-env"@ || flag@ == "--payload-env"@
+        || flag@ == "--revision-env"@ || flag@ == "--repository-env"@ || flag@ == "--config"@)));
+    let config = config_argument(value);
+    match value {
+        None => { assert(config is Err); }
+        Some(path) => { assert(config is Ok && config.unwrap()@ == path@); }
+    }
+    let bound = bounded_request(n);
+    assert(bound == (n < 67108865));
+    let observed = source_root(absolute, || Ok::<bool,String>(same));
+    assert(observed == Ok(absolute && same));
+}
+
+#[cfg(verus_keep_ghost)]
 fn a_two_parent_event_selects_only_the_first_parent(parents: &[String], head: &str)
     requires parents.len() == 2,
         policy::object_id(vstd::utf8::encode_utf8(parents@[0]@)), policy::object_id(head.spec_bytes()),
