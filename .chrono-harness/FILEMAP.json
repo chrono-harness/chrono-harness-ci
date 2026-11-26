@@ -553,7 +553,16 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/ci-tests/tests/verified_literals.rs",
+            "operation": "verify.ci-literals-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/ci-tests/tests/fixtures/github-actions.lock",

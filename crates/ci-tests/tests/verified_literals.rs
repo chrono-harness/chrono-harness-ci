@@ -1,4 +1,8 @@
 #[cfg(verus_keep_ghost)]
+#[path = "actions_lock.rs"]
+mod lock_expectations;
+
+#[cfg(verus_keep_ghost)]
 #[path = "proof_support/ci/cache.rs"]
 mod cache_expectations;
 
@@ -37,16 +41,6 @@ use vstd::prelude::*;
 use vstd::string::StringSliceAdditionalSpecFns;
 
 verus! {
-
-#[cfg(verus_keep_ghost)]
-fn required_workflow_action_owners(owner: u64, repository: u64) {
-    let checkout = policy::actions_lock::repository_identity(true, owner, repository);
-    let upload = policy::actions_lock::repository_identity(false, owner, repository);
-    assert(checkout == (repository == 197814629 && owner == 44036562));
-    assert(upload == (repository == 192625955 && owner == 44036562));
-    assert(!(checkout && upload));
-}
-
 
 #[cfg(verus_keep_ghost)]
 fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Option<&str>, absolute: bool, same: bool) {

@@ -60,7 +60,7 @@ chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-pro
   "$src/inventory.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/gather.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
-  "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
+  "$tests/actions_lock.rs" "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
   "$include/verified_literals.rs" "$include/actions_lock.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/check_inputs.rs" "$include/downloads.rs" "$include/gating.rs" \
   "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
