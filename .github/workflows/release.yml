@@ -51,11 +51,11 @@ jobs:
           set -euo pipefail
           cargo build --release --locked --manifest-path crates/ci/Cargo.toml
           binary="$CARGO_TARGET_DIR/release/chrono-ci"
-          "$binary" --version | grep -Ex 'chrono-ci [0-9]+[.][0-9]+[.][0-9]+'
+          "$binary" --version > "$RUNNER_TEMP/release-version"
           code=0
           "$binary" detect 2>"$RUNNER_TEMP/detect-error" || code=$?
-          test "$code" = 1
-          grep -F 'detect requires fixed host-root, config and github-output' "$RUNNER_TEMP/detect-error"
+          cargo run --quiet --locked --release --manifest-path crates/ci-tests/Cargo.toml \
+            --example release_observation -- "$code" "$RUNNER_TEMP/release-version" "$RUNNER_TEMP/detect-error"
           mkdir "$RUNNER_TEMP/dist"
           cp "$CARGO_TARGET_DIR/release/chrono-ci" "$RUNNER_TEMP/dist/chrono-ci-$PLATFORM"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

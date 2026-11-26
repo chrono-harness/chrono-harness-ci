@@ -332,7 +332,16 @@
       "owner": "host",
       "surface": "product",
       "cost": "unmeasured",
-      "edges": []
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": ".gitignore",
@@ -632,6 +641,27 @@
           {
             "path": "crates/ci-tests/tests/verified_literals.rs",
             "operation": "verify.ci-literals-tests"
+          }
+        ]
+      }
+    },
+    {
+      "path": "crates/ci-tests/examples/release_observation.rs",
+      "owner": "ci-tests",
+      "surface": "test",
+      "cost": "unmeasured",
+      "edges": [
+        {
+          "kind": "test-execution",
+          "to": "test:ci-tests"
+        }
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/ci-tests/tests/verified_download.rs",
+            "operation": "verify.ci-downloads-tests"
           }
         ]
       }
