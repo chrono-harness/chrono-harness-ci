@@ -15,6 +15,9 @@ pub mod check_inputs;
 #[path = "downloads.rs"]
 pub mod download_projection;
 #[cfg(verus_keep_ghost)]
+#[path = "files.rs"]
+pub mod files;
+#[cfg(verus_keep_ghost)]
 #[path = "gating.rs"]
 pub mod gating;
 #[cfg(verus_keep_ghost)]

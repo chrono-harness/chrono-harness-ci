@@ -97,7 +97,10 @@ mod native {
     #[test]
     fn deployed_tool_installer_matches_the_selected_template() {
         use sha2::{Digest, Sha256};
-        let digest = format!("{:x}", Sha256::digest(deployed_tool_installer().as_bytes()));
+        let digest = Sha256::digest(deployed_tool_installer().as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         assert!(
             installer_digest_matches(&digest),
             "install-tools.sh differs from the selected template"

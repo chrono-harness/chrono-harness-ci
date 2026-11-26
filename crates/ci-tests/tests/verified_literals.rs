@@ -41,6 +41,15 @@ use vstd::prelude::*;
 use vstd::string::StringSliceAdditionalSpecFns;
 
 verus! {
+#[cfg(verus_keep_ghost)]
+fn digest_wire_pairs(digest: &[u8; 32], at: usize)
+    requires at < 32,
+{
+    let text = policy::files::digest_ascii(digest);
+    assert(text@[2 * at as int] == policy::files::hex_ascii(digest@[at as int] as int / 16));
+    assert(text@[2 * at as int + 1] == policy::files::hex_ascii(digest@[at as int] as int % 16));
+}
+
 
 #[cfg(verus_keep_ghost)]
 fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Option<&str>, absolute: bool, same: bool) {
@@ -451,4 +460,15 @@ fn partial_openers_and_nonadjacent_bytes_are_accepted() {
     expect(&[36u8, 123, 32, 123], true);
 }
 
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn installed_runner_hashes_across_the_read_buffer_boundary() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("runner"), vec![b'a'; 65_537]).unwrap();
+    assert_eq!(
+        chrono_ci::units::installed_runner_sha256(root.path(), "runner").unwrap(),
+        "008ffc88d3c96a9f307524eb361e47c5222a887fc45fa0c1fb8d429c5c23b430"
+    );
 }
