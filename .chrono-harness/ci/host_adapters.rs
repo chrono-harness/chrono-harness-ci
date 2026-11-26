@@ -84,9 +84,9 @@ pub fn deployed_roadmap() -> (&'static str, &'static str) {
 
 /// The native caller hashes the actual UTF-8 bytes embedded above.
 pub fn roadmap_matches(script: &String, workflow: &String) -> (accepted: bool)
-    ensures accepted == (script@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "ada2930fa2e9590260155ec4e309d40adda0a3158c37077b65e6c1ffccfc0d58"@),
+    ensures accepted == (script@ == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9"@ && workflow@ == "dca0c52e63dacb8216f4ffb3bf5abecc1176428ba1076a8db7bcd1667d9f63ee"@),
 {
-    *script == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string() && *workflow == "ada2930fa2e9590260155ec4e309d40adda0a3158c37077b65e6c1ffccfc0d58".to_string()
+    *script == "5824ea576bd25a792c76e976dc2dcec1c7eb684f6a3a9de9919220a546b61cf9".to_string() && *workflow == "dca0c52e63dacb8216f4ffb3bf5abecc1176428ba1076a8db7bcd1667d9f63ee".to_string()
 }
 }
 
