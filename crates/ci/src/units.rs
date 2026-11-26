@@ -1,8 +1,37 @@
 //! Explicit units scheduled as jobs within one parent workflow.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub fn lock_selected(path: Option<&str>, checkout: &str, upload: &str) -> (result: Result<bool, &'static str>)
+    ensures
+        result == Ok(false) <==> path.is_none(),
+        result == Ok(true) <==> path.is_some() && path.unwrap()@ == ".github/workflows/actions.lock"@
+                    && checkout@.len() == 0 && upload@.len() == 0,
+{
+    match path {
+        None => Ok(false),
+        Some(p) => {
+            if <&str>::exec_eq(p, ".github/workflows/actions.lock") && checkout.is_empty() && upload.is_empty() {
+                Ok(true)
+            } else {
+                Err("actions_lock requires the GitHub workflow lockfile as the sole checkout/upload source")
+            }
+        }
+    }
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::files::file_identity;
+#[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Scope {
@@ -10,6 +39,7 @@ pub enum Scope {
     Collect { manifest: String },
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Scope {
     pub(crate) fn short_argv(&self) -> Vec<String> {
         match self {
@@ -19,6 +49,7 @@ impl Scope {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Unit {
@@ -26,16 +57,19 @@ pub(super) struct Unit {
     pub report_path: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn valid_id(s: &str) -> bool {
     !s.is_empty()
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_'))
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn id(s: &str) -> Result<(), String> {
     valid_id(s)
         .then_some(())
         .ok_or_else(|| format!("invalid CI unit ID: {s:?}"))
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn artifact_path(path: &str) -> Result<(), String> {
     relative_path(path)?;
     if !path.starts_with(".chrono-harness/state/") {
@@ -45,16 +79,20 @@ pub(crate) fn artifact_path(path: &str) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn path_overlap(a: &str, b: &str) -> bool {
     let (a, b) = (Path::new(a), Path::new(b));
     a.starts_with(b) || b.starts_with(a)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub const SCHEMA: &str = "chrono-github-units/v1";
+#[cfg(not(verus_keep_ghost))]
 pub const FULL_SCHEMA: &str = "chrono-github-units/v2";
 
 /// Locate the configured runner, including a file linked to the host's package manager.
 /// Parent directories are part of the host checkout and must be real directories.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn installed_runner_path(root: &Path, runner: &str) -> Result<PathBuf, String> {
     crate::files::relative_path(runner)?;
     let path = Path::new(runner);
@@ -67,10 +105,12 @@ pub(crate) fn installed_runner_path(root: &Path, runner: &str) -> Result<PathBuf
     }
     Ok(root.join(path))
 }
+#[cfg(not(verus_keep_ghost))]
 pub fn installed_runner_sha256(root: &Path, runner: &str) -> Result<String, String> {
     Ok(file_identity(&installed_runner_path(root, runner)?)?.0)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullContexts {
@@ -78,12 +118,14 @@ pub struct FullContexts {
     pub units: BTreeMap<String, String>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn full_contexts_present<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<FullContexts>, D::Error> {
     FullContexts::deserialize(d).map(Some)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -110,6 +152,7 @@ pub struct Config {
     pub gather: Gather,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
@@ -121,6 +164,7 @@ pub struct Workflow {
     pub artifact_directory: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DownloadRetry {
@@ -129,12 +173,14 @@ pub struct DownloadRetry {
     pub http_statuses: Vec<u16>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn download_retry_present<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<DownloadRetry>, D::Error> {
     DownloadRetry::deserialize(d).map(Some)
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Gather {
@@ -155,6 +201,7 @@ pub struct Gather {
     pub download_retry: Option<DownloadRetry>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Config {
     pub fn workflow(&self, unit: Option<&str>) -> Result<super::Config, String> {
         let mut c = self.collection.clone();
@@ -180,6 +227,7 @@ impl Config {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn validate(c: &Config) -> Result<(), String> {
     if let Some(cache) = &c.persistent_cache {
         let mut jobs: BTreeSet<_> = c.units.keys().map(|id| super::gating::job_id(id)).collect();
@@ -247,14 +295,11 @@ pub fn validate(c: &Config) -> Result<(), String> {
         }
     }
     super::gating::validate(c, &c.job_gating)?;
-    if let Some(path) = &c.actions_lock {
-        if path != super::actions_lock::PATH
-            || !c.collection.checkout_action.is_empty()
-            || !c.collection.upload_artifact_action.is_empty()
-        {
-            return Err("actions_lock requires the GitHub workflow lockfile as the sole checkout/upload source".into());
-        }
-    } else {
+    if !lock_selected(
+        c.actions_lock.as_deref(),
+        &c.collection.checkout_action,
+        &c.collection.upload_artifact_action,
+    )? {
         super::validate_action_pins(&c.collection)?;
     }
     super::validate_policy(&c.collection, c.schema == FULL_SCHEMA)?;
@@ -332,6 +377,7 @@ pub fn validate(c: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(super) struct ScopedProfile {
     pub schema: String,
@@ -340,6 +386,7 @@ pub(super) struct ScopedProfile {
     pub report_path: String,
     pub retained_reference: bool,
 }
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn scoped_profile(root: &Path, c: &Config) -> Result<ScopedProfile, String> {
     crate::runtime_session::Session::query(
         root,
@@ -349,11 +396,13 @@ pub(super) fn scoped_profile(root: &Path, c: &Config) -> Result<ScopedProfile, S
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) struct Profile {
     pub units: BTreeMap<String, Unit>,
     pub report_path: String,
     pub judge: Option<crate::observed::CommandSpec>,
 }
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
     let profile = if c.schema == FULL_SCHEMA {
         let raw = crate::runtime_session::Session::selected_config(
@@ -425,12 +474,14 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
     Ok(profile)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn render(c: &Config, config_path: &str) -> Result<BTreeMap<String, String>, String> {
     render_from(c, config_path, |_| {
         Err("unit rendering requires the registered actions_lock input".into())
     })
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn render_from(
     c: &Config,
     config_path: &str,
@@ -452,10 +503,12 @@ pub fn render_from(
     super::gating::render(c, config_path)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn read_lock(root: &Path, path: &str) -> Result<Vec<u8>, String> {
     fs::read(no_symlink_parents(root, path)?).map_err(|e| format!("{path}: {e}"))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn projection_changes(
     root: &Path,
     path: &str,
@@ -477,6 +530,7 @@ fn projection_changes(
     }
     Ok(writes)
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn verify_fixed(
     root: &Path,
     path: &str,
@@ -486,6 +540,7 @@ pub(crate) fn verify_fixed(
     projection_changes(root, path, c, true, read).map(|_| ())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Result<bool, String> {
     let writes = projection_changes(root, path, c, verify, |input| read_lock(root, input))?;
     // Preflight every output before modifying any of them; I/O failure is reported, never atomicity claimed.
@@ -495,6 +550,7 @@ pub fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Result<boo
     Ok(!writes.is_empty())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn init(root: &Path, incoming: Config) -> Result<bool, String> {
     let path = ".chrono-harness/ci/units.json";
     let existing = no_symlink_parents(root, path)?.exists();
@@ -514,6 +570,7 @@ pub fn init(root: &Path, incoming: Config) -> Result<bool, String> {
     Ok(generate(root, path, &c, false)? || !existing)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn prepare(
     root: &Path,
     path: &str,
@@ -534,6 +591,7 @@ pub fn prepare(
         revision,
     )
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn prepare_all(
     root: &Path,
     path: &str,
@@ -544,6 +602,7 @@ pub(crate) fn prepare_all(
 ) -> Result<Value, String> {
     prepare_scope(root, path, c, None, None, event, payload, revision)
 }
+#[cfg(not(verus_keep_ghost))]
 #[allow(clippy::too_many_arguments)]
 fn prepare_scope(
     root: &Path,

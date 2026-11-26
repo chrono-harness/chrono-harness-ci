@@ -6,6 +6,19 @@ use vstd::prelude::*;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn required_unit_lock_source(path: Option<&str>, checkout: &str, upload: &str) {
+    let source = super::policy::units::lock_selected(path, checkout, upload);
+    assert((source == Ok(false)) == path.is_none());
+    if path.is_some() {
+        assert((source == Ok(true)) == (path.unwrap()@ == ".github/workflows/actions.lock"@ && checkout@.len() == 0 && upload@.len() == 0));
+    }
+}
+#[cfg(verus_keep_ghost)]
+fn required_migration_preserves_local_work(actual: &[u8], expected: &[u8]) {
+    let matched = super::policy::migrate::previous_bytes_match(actual, expected);
+    assert(matched == (actual@ == expected@));
+}
+#[cfg(verus_keep_ghost)]
 fn required_workflow_action_owners(owner: u64, repository: u64) {
     let checkout = super::policy::actions_lock::repository_identity(true, owner, repository);
     let upload = super::policy::actions_lock::repository_identity(false, owner, repository);

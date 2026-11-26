@@ -18,6 +18,9 @@ pub mod download_projection;
 #[path = "gating.rs"]
 pub mod gating;
 #[cfg(verus_keep_ghost)]
+#[path = "migrate.rs"]
+pub mod migrate;
+#[cfg(verus_keep_ghost)]
 #[path = "release.rs"]
 mod release_projection;
 #[cfg(verus_keep_ghost)]
@@ -26,6 +29,9 @@ pub mod single_projection;
 #[cfg(verus_keep_ghost)]
 #[path = "startup.rs"]
 pub mod startup;
+#[cfg(verus_keep_ghost)]
+#[path = "units.rs"]
+pub mod units;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]

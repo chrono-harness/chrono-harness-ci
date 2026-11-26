@@ -1,7 +1,29 @@
 //! Migrate explicit owned projections while preserving the host's next configuration.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::view::DeepView;
+
+verus! {
+pub fn previous_bytes_match(actual: &[u8], expected: &[u8]) -> (matches: bool)
+    ensures matches == (actual@ == expected@),
+{
+    proof {
+        assert(actual.deep_view() =~= actual@);
+        assert(expected.deep_view() =~= expected@);
+    }
+    <&[u8]>::exec_eq(actual,expected)
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
 
+#[cfg(not(verus_keep_ghost))]
 fn source_path(path: &str) -> Result<(), String> {
     relative_path(path)?;
     if !path.starts_with(".chrono-harness/ci/") {
@@ -10,6 +32,7 @@ fn source_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn previous(
     root: &Path,
     projection: &Projection,
@@ -24,9 +47,10 @@ fn previous(
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn exact(root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
     let actual = fs::read(no_symlink_parents(root, path)?).map_err(|e| format!("{path}: {e}"))?;
-    if actual != expected {
+    if !previous_bytes_match(&actual, expected) {
         return Err(format!(
             "previous projection differs; preserve host edits: {path}"
         ));
@@ -34,6 +58,7 @@ fn exact(root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Result<String, String> {
     relative_path(input)?;
     source_path(old_source)?;
