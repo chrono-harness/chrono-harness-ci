@@ -10,9 +10,13 @@ fn source_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn previous(projection: &Projection, source: &str) -> Result<BTreeMap<String, String>, String> {
+fn previous(
+    root: &Path,
+    projection: &Projection,
+    source: &str,
+) -> Result<BTreeMap<String, String>, String> {
     match projection {
-        Projection::Units(c) => units::render(c, source),
+        Projection::Units(c) => units::render_from(c, source, |path| units::read_lock(root, path)),
         Projection::Check(c) => {
             Ok(BTreeMap::from([(c.workflow_path.clone(), render(c, source)?)]))
         }
@@ -40,7 +44,7 @@ pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Resu
     let old_bytes = fs::read(no_symlink_parents(root, input)?).map_err(|e| e.to_string())?;
     let source_bytes = fs::read(no_symlink_parents(root, source)?).map_err(|e| e.to_string())?;
     let old_projection = decode_projection(&old_bytes)?;
-    let old = previous(&old_projection, old_source)?;
+    let old = previous(root, &old_projection, old_source)?;
     let prior_inventory = match &old_projection {
         Projection::Check(c) => inventory_output(c)?.map(|(p, b)| (p.to_owned(), b)),
         _ => None,
@@ -48,7 +52,7 @@ pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Resu
     let new = match decode_projection(&source_bytes)? {
         Projection::Units(next) if prior_inventory.is_none() => {
             units::profile(root, &next)?;
-            units::render(&next, source)?
+            units::render_from(&next, source, |path| units::read_lock(root, path))?
         }
         Projection::Check(next) if prior_inventory.is_some() => {
             let inventory = inventory_output(&next)?.map(|(p, b)| (p.to_owned(), b));

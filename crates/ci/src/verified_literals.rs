@@ -1,5 +1,8 @@
 //! CI 配置的字面单行判断及原生缓存登记准入，供现役投影使用。
 #[cfg(verus_keep_ghost)]
+#[path = "actions_lock.rs"]
+pub mod actions_lock;
+#[cfg(verus_keep_ghost)]
 #[path = "cache_action.rs"]
 pub mod cache_action;
 #[cfg(verus_keep_ghost)]

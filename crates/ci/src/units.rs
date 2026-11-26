@@ -87,6 +87,12 @@ fn full_contexts_present<'de, D: serde::Deserializer<'de>>(
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "super::string_present"
+    )]
+    pub actions_lock: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requirements_program: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -241,6 +247,16 @@ pub fn validate(c: &Config) -> Result<(), String> {
         }
     }
     super::gating::validate(c, &c.job_gating)?;
+    if let Some(path) = &c.actions_lock {
+        if path != super::actions_lock::PATH
+            || !c.collection.checkout_action.is_empty()
+            || !c.collection.upload_artifact_action.is_empty()
+        {
+            return Err("actions_lock requires the GitHub workflow lockfile as the sole checkout/upload source".into());
+        }
+    } else {
+        super::validate_action_pins(&c.collection)?;
+    }
     super::validate_policy(&c.collection, c.schema == FULL_SCHEMA)?;
     let mut names = BTreeSet::from([c.collection.name.clone()]);
     let mut contexts = BTreeSet::from([c.collection.context_path.clone()]);
@@ -410,12 +426,34 @@ pub(super) fn profile(root: &Path, c: &Config) -> Result<Profile, String> {
 }
 
 pub fn render(c: &Config, config_path: &str) -> Result<BTreeMap<String, String>, String> {
+    render_from(c, config_path, |_| {
+        Err("unit rendering requires the registered actions_lock input".into())
+    })
+}
+
+pub fn render_from(
+    c: &Config,
+    config_path: &str,
+    read: impl FnOnce(&str) -> Result<Vec<u8>, String>,
+) -> Result<BTreeMap<String, String>, String> {
     validate(c)?;
     relative_path(config_path)?;
     if !config_path.starts_with(".chrono-harness/ci/") {
         return Err("unit source must belong to host CI configuration".into());
     }
+    if let Some(path) = &c.actions_lock {
+        let (checkout, upload) =
+            super::actions_lock::resolve(&read(path)?, &c.collection.workflow_path)?;
+        let mut resolved = c.clone();
+        resolved.collection.checkout_action = checkout;
+        resolved.collection.upload_artifact_action = upload;
+        return super::gating::render(&resolved, config_path);
+    }
     super::gating::render(c, config_path)
+}
+
+pub(crate) fn read_lock(root: &Path, path: &str) -> Result<Vec<u8>, String> {
+    fs::read(no_symlink_parents(root, path)?).map_err(|e| format!("{path}: {e}"))
 }
 
 fn projection_changes(
@@ -423,9 +461,11 @@ fn projection_changes(
     path: &str,
     c: &Config,
     verify: bool,
+    read: impl FnOnce(&str) -> Result<Vec<u8>, String>,
 ) -> Result<Vec<(String, String)>, String> {
+    profile(root, c)?;
     super::cache::validate_registry(root, c.persistent_cache.as_ref())?;
-    let outputs = render(c, path)?;
+    let outputs = render_from(c, path, read)?;
     let mut writes = vec![];
     for (path, bytes) in &outputs {
         if !output_preflight(root, path, bytes, super::gating::MARKER)? {
@@ -437,9 +477,17 @@ fn projection_changes(
     }
     Ok(writes)
 }
+pub(crate) fn verify_fixed(
+    root: &Path,
+    path: &str,
+    c: &Config,
+    read: impl FnOnce(&str) -> Result<Vec<u8>, String>,
+) -> Result<(), String> {
+    projection_changes(root, path, c, true, read).map(|_| ())
+}
+
 pub fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Result<bool, String> {
-    profile(root, c)?;
-    let writes = projection_changes(root, path, c, verify)?;
+    let writes = projection_changes(root, path, c, verify, |input| read_lock(root, input))?;
     // Preflight every output before modifying any of them; I/O failure is reported, never atomicity claimed.
     for (path, bytes) in &writes {
         write_file(root, path, bytes.as_bytes())?;
@@ -456,8 +504,7 @@ pub fn init(root: &Path, incoming: Config) -> Result<bool, String> {
         incoming
     };
     if !existing {
-        profile(root, &c)?;
-        projection_changes(root, path, &c, false)?;
+        projection_changes(root, path, &c, false, |input| read_lock(root, input))?;
         write_file(
             root,
             path,
@@ -542,7 +589,10 @@ fn prepare_scope(
         .to_string();
     let candidate = candidate_owned.as_str();
     let facts = event_git::EventGit::new(root, &w, candidate)?;
-    for input in [path, w.check_config.as_str(), w.workflow_path.as_str()] {
+    for input in [path, w.check_config.as_str(), w.workflow_path.as_str()]
+        .into_iter()
+        .chain(c.actions_lock.as_deref())
+    {
         if facts.show(candidate, input)?.as_bytes()
             != fs::read(root.join(input)).map_err(|e| e.to_string())?
         {

@@ -39,6 +39,16 @@ use vstd::string::StringSliceAdditionalSpecFns;
 verus! {
 
 #[cfg(verus_keep_ghost)]
+fn required_workflow_action_owners(owner: u64, repository: u64) {
+    let checkout = policy::actions_lock::repository_identity(true, owner, repository);
+    let upload = policy::actions_lock::repository_identity(false, owner, repository);
+    assert(checkout == (repository == 197814629 && owner == 44036562));
+    assert(upload == (repository == 192625955 && owner == 44036562));
+    assert(!(checkout && upload));
+}
+
+
+#[cfg(verus_keep_ghost)]
 fn required_check_input_admission(n: usize, flag: &str, seen: bool, value: Option<&str>, absolute: bool, same: bool) {
     use policy::check_inputs::*;
     let paired = paired_arguments(n);

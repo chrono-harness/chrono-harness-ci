@@ -495,7 +495,6 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     let Projection::Units(c) = load_projection(&no_symlink_parents(root, path)?)? else {
         return Err("detect requires registered unit provider".into());
     };
-    units::generate(root, path, &c, true)?;
     if env("GITHUB_JOB")? != "detect" {
         return Err("detector job identity mismatch".into());
     }
@@ -515,6 +514,15 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         .as_str()
         .ok_or("detector candidate missing")?;
     let facts = event_git::EventGit::new(root, &c.collection, candidate)?;
+    units::verify_fixed(root, path, &c, |input| {
+        let lock = facts.blob(candidate, input)?;
+        if candidate != revision && lock != facts.blob(&revision, input)? {
+            return Err(format!(
+                "detector workflow revision differs from candidate lock: {input}"
+            ));
+        }
+        Ok(lock)
+    })?;
     for input in [
         path,
         c.collection.check_config.as_str(),
