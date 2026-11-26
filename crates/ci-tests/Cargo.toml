@@ -23,3 +23,7 @@ tempfile = "3"
 [[test]]
 name = "native_cache_action"
 path = "tests/native_cache_action.rs"
+
+[[example]]
+name = "release_observation"
+path = "tests/verified_download.rs"
