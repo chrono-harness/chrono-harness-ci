@@ -478,7 +478,16 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": ".chrono-harness/ci/host_adapters.rs",
+            "operation": "verify.deployed-host"
+          }
+        ]
+      }
     },
     {
       "path": "crates/ci-tests/Cargo.lock",
@@ -810,7 +819,11 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/ci/Cargo.toml",
@@ -822,7 +835,11 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "data",
+        "roots": []
+      }
     },
     {
       "path": "crates/ci/src/cache.rs",
@@ -982,7 +999,20 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "program",
+        "roots": [
+          {
+            "path": "crates/ci/src/verified_download.rs",
+            "operation": "verify.ci-downloads"
+          },
+          {
+            "path": "crates/ci-tests/tests/verified_download.rs",
+            "operation": "verify.ci-downloads-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/ci/src/gating.rs",

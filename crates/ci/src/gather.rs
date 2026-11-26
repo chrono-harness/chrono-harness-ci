@@ -1,17 +1,94 @@
 //! GitHub transports fixed unit artifacts; the scoped judge decides their acceptance.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+pub struct AcquisitionBudget<D> {
+    pub deadline: D,
+    pub stdout_remaining: usize,
+    pub stderr_remaining: usize,
+}
+
+impl<D> AcquisitionBudget<D> {
+    pub fn start(deadline: Option<D>, limit: usize) -> (result: Result<Self, &'static str>)
+        ensures match deadline {
+            Some(value) => result is Ok && result.unwrap().deadline == value
+                && result.unwrap().stdout_remaining == limit && result.unwrap().stderr_remaining == limit,
+            None => result is Err && result->Err_0@ == "artifact acquisition deadline overflow"@,
+        },
+    {
+        match deadline {
+            Some(deadline) => Ok(Self { deadline, stdout_remaining: limit, stderr_remaining: limit }),
+            None => Err("artifact acquisition deadline overflow"),
+        }
+    }
+
+    pub fn charge(&mut self, stdout: usize, stderr: usize)
+        ensures self.deadline == old(self).deadline,
+            self.stdout_remaining as int == if stdout <= old(self).stdout_remaining {
+                old(self).stdout_remaining - stdout } else { 0 },
+            self.stderr_remaining as int == if stderr <= old(self).stderr_remaining {
+                old(self).stderr_remaining - stderr } else { 0 },
+    {
+        self.stdout_remaining = self.stdout_remaining.saturating_sub(stdout);
+        self.stderr_remaining = self.stderr_remaining.saturating_sub(stderr);
+    }
+}
+
+/// Durations come from the monotonic clock. A zero observation includes a past deadline.
+pub fn available_time<T>(value: T, nanos: u128) -> (result: Result<T, &'static str>)
+    ensures if nanos == 0 {
+        result is Err && result->Err_0@ == "artifact acquisition cumulative deadline exhausted"@
+    } else { result == Ok::<T, &'static str>(value) },
+{
+    if nanos == 0 { Err("artifact acquisition cumulative deadline exhausted") } else { Ok(value) }
+}
+
+pub fn transport_limits<T>(requested: T, requested_nanos: u128, output_limit: usize,
+    budget: Option<(T, u128, usize, usize)>) -> (result: Result<(T, usize), &'static str>)
+    ensures match budget {
+        None => result == Ok::<(T, usize), &'static str>((requested, output_limit)),
+        Some((time, nanos, stdout, stderr)) =>
+            if output_limit == 0 || stdout == 0 || stderr == 0 {
+                result is Err && result->Err_0@ == "artifact acquisition cumulative stream limit exhausted"@
+            } else if nanos == 0 {
+                result is Err && result->Err_0@ == "artifact acquisition cumulative deadline exhausted"@
+            } else {
+                result is Ok && result.unwrap().0 == if requested_nanos <= nanos { requested } else { time }
+                    && result.unwrap().1 as int == vstd::math::min(output_limit as int, vstd::math::min(stdout as int, stderr as int))
+            },
+    },
+{
+    let Some((time, nanos, stdout, stderr)) = budget else { return Ok((requested, output_limit)); };
+    let limit = output_limit.min(stdout).min(stderr);
+    if limit == 0 { return Err("artifact acquisition cumulative stream limit exhausted"); }
+    let available = available_time(time, nanos)?;
+    let chosen = if requested_nanos <= nanos { requested } else { available };
+    Ok((chosen, limit))
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::observed::Observation;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     files::{file_identity, sha256},
     observed::CommandSpec,
 };
+#[cfg(not(verus_keep_ghost))]
 use std::{
     collections::BTreeMap,
     time::{Duration, Instant},
 };
 
+#[cfg(not(verus_keep_ghost))]
 struct ArtifactPage<'a>(&'a [Value]);
 
+#[cfg(not(verus_keep_ghost))]
 impl crate::verified_download::ArtifactPage for ArtifactPage<'_> {
     fn len(&self) -> usize {
         self.0.len()
@@ -22,22 +99,15 @@ impl crate::verified_download::ArtifactPage for ArtifactPage<'_> {
     }
 }
 
-struct AcquisitionBudget {
-    deadline: Instant,
-    stdout_remaining: usize,
-    stderr_remaining: usize,
-}
-
-impl AcquisitionBudget {
+#[cfg(not(verus_keep_ghost))]
+impl AcquisitionBudget<Instant> {
     fn remaining(&self) -> Result<Duration, String> {
-        let remaining = self.deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err("artifact acquisition cumulative deadline exhausted".into());
-        }
-        Ok(remaining)
+        let value = self.deadline.saturating_duration_since(Instant::now());
+        Ok(available_time(value, value.as_nanos())?)
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 struct Transport<'a> {
     root: &'a Path,
     config: &'a units::Gather,
@@ -49,9 +119,10 @@ struct Transport<'a> {
     runner: std::path::PathBuf,
     downloads: Option<String>,
     storage: crate::storage::Storage,
-    acquisition: Option<AcquisitionBudget>,
+    acquisition: Option<AcquisitionBudget<Instant>>,
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl<'a> Transport<'a> {
     fn new(root: &'a Path, runner: &str, c: &'a units::Gather) -> Result<Self, String> {
         let mut environment = BTreeMap::new();
@@ -104,17 +175,17 @@ impl<'a> Transport<'a> {
         remaining: Duration,
         output_limit: usize,
     ) -> Result<Observation, String> {
-        let (remaining, output_limit) = if let Some(budget) = &self.acquisition {
-            let limit = output_limit
-                .min(budget.stdout_remaining)
-                .min(budget.stderr_remaining);
-            if limit == 0 {
-                return Err("artifact acquisition cumulative stream limit exhausted".into());
-            }
-            (remaining.min(budget.remaining()?), limit)
-        } else {
-            (remaining, output_limit)
-        };
+        let budget = self.acquisition.as_ref().map(|budget| {
+            let time = budget.deadline.saturating_duration_since(Instant::now());
+            (
+                time,
+                time.as_nanos(),
+                budget.stdout_remaining,
+                budget.stderr_remaining,
+            )
+        });
+        let (remaining, output_limit) =
+            transport_limits(remaining, remaining.as_nanos(), output_limit, budget)?;
         let spec = CommandSpec {
             program: self.executable.clone(),
             args: args.to_vec(),
@@ -134,21 +205,18 @@ impl<'a> Transport<'a> {
             "stdin_sha256":sha256(&[]),"stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
             "stdout_sha256":p.stdout_sha256,"stderr_sha256":p.stderr_sha256,"exit_code":p.exit_code,"failure":p.failure}));
         if let Some(budget) = &mut self.acquisition {
-            budget.stdout_remaining = budget.stdout_remaining.saturating_sub(p.stdout_bytes.len());
-            budget.stderr_remaining = budget.stderr_remaining.saturating_sub(p.stderr_bytes.len());
+            budget.charge(p.stdout_bytes.len(), p.stderr_bytes.len());
             budget.remaining()?;
         }
         Ok(p)
     }
 
     fn begin_artifact(&mut self) -> Result<(), String> {
-        self.acquisition = Some(AcquisitionBudget {
-            deadline: Instant::now()
-                .checked_add(Duration::from_secs(self.config.timeout_seconds))
-                .ok_or("artifact acquisition deadline overflow")?,
-            stdout_remaining: self.config.output_limit_bytes,
-            stderr_remaining: self.config.output_limit_bytes,
-        });
+        let deadline = Instant::now().checked_add(Duration::from_secs(self.config.timeout_seconds));
+        self.acquisition = Some(AcquisitionBudget::start(
+            deadline,
+            self.config.output_limit_bytes,
+        )?);
         Ok(())
     }
 
@@ -301,6 +369,7 @@ impl<'a> Transport<'a> {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn parent_run(
     run: &Value,
     repository: &str,
@@ -320,6 +389,7 @@ fn parent_run(
     // The aggregate is currently running. Waiting for parent completion would wait on itself.
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 fn validate_detector_jobs(
     jobs: &[&Value],
     d: &super::gating::Detection,
@@ -351,6 +421,7 @@ fn validate_detector_jobs(
     }
     Ok(())
 }
+#[cfg(not(verus_keep_ghost))]
 fn parent_units(
     root: &Path,
     c: &units::Config,
@@ -485,6 +556,7 @@ fn parent_units(
     Ok(completed)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn inner(
     root: &Path,
     path: &str,
@@ -761,6 +833,7 @@ fn inner(
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(super) fn gather(
     root: &Path,
     path: &str,
