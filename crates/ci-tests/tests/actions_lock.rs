@@ -8,9 +8,9 @@ verus! {
 #[cfg(verus_keep_ghost)]
 fn required_unit_lock_source(path: Option<&str>, checkout: &str, upload: &str) {
     let source = super::policy::units::lock_selected(path, checkout, upload);
-    assert((source == Ok(false)) == path.is_none());
+    assert((source == Ok::<bool, &str>(false)) == path.is_none());
     if path.is_some() {
-        assert((source == Ok(true)) == (path.unwrap()@ == ".github/workflows/actions.lock"@ && checkout@.len() == 0 && upload@.len() == 0));
+        assert((source == Ok::<bool, &str>(true)) == (path.unwrap()@ == ".github/workflows/actions.lock"@ && checkout@.len() == 0 && upload@.len() == 0));
     }
 }
 #[cfg(verus_keep_ghost)]

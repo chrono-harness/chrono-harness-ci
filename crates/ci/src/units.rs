@@ -8,8 +8,8 @@ use vstd::prelude::*;
 verus! {
 pub fn lock_selected(path: Option<&str>, checkout: &str, upload: &str) -> (result: Result<bool, &'static str>)
     ensures
-        result == Ok(false) <==> path.is_none(),
-        result == Ok(true) <==> path.is_some() && path.unwrap()@ == ".github/workflows/actions.lock"@
+        result == Ok::<bool, &str>(false) <==> path.is_none(),
+        result == Ok::<bool, &str>(true) <==> path.is_some() && path.unwrap()@ == ".github/workflows/actions.lock"@
                     && checkout@.len() == 0 && upload@.len() == 0,
 {
     match path {
