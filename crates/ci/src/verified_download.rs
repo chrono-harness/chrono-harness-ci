@@ -6,6 +6,14 @@ use vstd::prelude::*;
 
 use vstd::contrib::exec_spec::ExecSpecEq;
 
+#[cfg(verus_keep_ghost)]
+#[path = "gather.rs"]
+mod gather;
+#[cfg(verus_keep_ghost)]
+pub use self::gather::{AcquisitionBudget, available_time, transport_limits};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::gather::{AcquisitionBudget, available_time, transport_limits};
+
 verus! {
 
 /// A page borrows the provider rows. The native adapter exposes only their names.

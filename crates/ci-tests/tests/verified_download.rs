@@ -71,6 +71,36 @@ fn main() -> Result<(), String> {
 verus! {
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn acquisition_charges_both_streams_and_restarts_at_each_artifact() {
+    let mut first = policy::AcquisitionBudget::start(Some(45u32), 10).unwrap();
+    first.charge(3, 8);
+    assert(first.stdout_remaining == 7 && first.stderr_remaining == 2);
+    let shorter = policy::transport_limits(60u32, 60, 9,
+        Some((20u32, 20, first.stdout_remaining, first.stderr_remaining))).unwrap();
+    assert(shorter.0 == 20 && shorter.1 == 2);
+    first.charge(9, 1);
+    assert(first.stdout_remaining == 0 && first.stderr_remaining == 1);
+    let streams = policy::transport_limits(0u32, 0, 9,
+        Some((0u32, 0, first.stdout_remaining, first.stderr_remaining))).unwrap_err();
+    assert(streams@ == "artifact acquisition cumulative stream limit exhausted"@);
+    let mut next = policy::AcquisitionBudget::start(Some(75u32), 6).unwrap();
+    assert(next.stdout_remaining == 6 && next.stderr_remaining == 6 && next.deadline == 75);
+    next.charge(0, 6);
+    let stderr = policy::transport_limits(3u32, 3, 9, Some((9u32, 9, next.stdout_remaining, next.stderr_remaining))).unwrap_err();
+    assert(stderr@ == "artifact acquisition cumulative stream limit exhausted"@);
+    let elapsed = policy::transport_limits(2u32, 2, 1, Some((0u32, 0, 1, 1))).unwrap_err();
+    assert(elapsed@ == "artifact acquisition cumulative deadline exhausted"@);
+    let request = policy::transport_limits(2u32, 2, 1, Some((15u32, 15, 4, 6))).unwrap();
+    assert(request.0 == 2 && request.1 == 1);
+    let unbounded = policy::transport_limits(0u32, 0, 0, None).unwrap();
+    assert(unbounded.0 == 0 && unbounded.1 == 0);
+    let after = policy::available_time(0u32, 0).unwrap_err();
+    assert(after@ == "artifact acquisition cumulative deadline exhausted"@);
+    let no_deadline = policy::AcquisitionBudget::<u32>::start(None, 6);
+    assert(no_deadline is Err);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn release_accepts_the_expected_observations_only() {
     let accepted = release_observation::accepts(1, true, true);
     assert(accepted);
