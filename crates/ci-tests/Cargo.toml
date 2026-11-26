@@ -38,3 +38,7 @@ path = "../../.chrono-harness/ci/host_adapters.rs"
 [[test]]
 name = "actions_lock"
 path = "tests/actions_lock.rs"
+
+[[test]]
+name = "verified_literals"
+path = "tests/verified_literals.rs"
