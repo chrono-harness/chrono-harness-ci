@@ -20,6 +20,8 @@ use crate::{
 #[cfg(not(verus_keep_ghost))]
 mod codec;
 #[cfg(not(verus_keep_ghost))]
+pub use codec::value_digest;
+#[cfg(not(verus_keep_ghost))]
 mod files;
 #[cfg(not(verus_keep_ghost))]
 pub mod initial;

@@ -97,7 +97,10 @@ mod native {
     #[test]
     fn deployed_tool_installer_matches_the_selected_template() {
         use sha2::{Digest, Sha256};
-        let digest = format!("{:x}", Sha256::digest(deployed_tool_installer().as_bytes()));
+        let digest = Sha256::digest(deployed_tool_installer().as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         assert!(
             installer_digest_matches(&digest),
             "install-tools.sh differs from the selected template"
@@ -219,13 +222,19 @@ mod native {
         }
     }
 
+    fn roadmap_digest(source: &str) -> String {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(source.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
     #[test]
     fn deployed_roadmap_matches_the_selected_template() {
-        use sha2::{Digest, Sha256};
         let (script, workflow) = deployed_roadmap();
-        let digest = |source: &str| format!("{:x}", Sha256::digest(source.as_bytes()));
-        let script_hash = digest(script);
-        let workflow_hash = digest(workflow);
+        let script_hash = roadmap_digest(script);
+        let workflow_hash = roadmap_digest(workflow);
         assert!(
             roadmap_matches(&script_hash, &workflow_hash),
             "roadmap.cjs or issue-roadmap.yml differs from the selected template"
@@ -233,7 +242,6 @@ mod native {
         assert!(!roadmap_matches(&workflow_hash, &workflow_hash));
         assert!(!roadmap_matches(&script_hash, &script_hash));
     }
-
     fn setup_matches(source: &str, instructions: bool) -> bool {
         let Ok(doc) = source.parse::<toml::Table>() else {
             return false;

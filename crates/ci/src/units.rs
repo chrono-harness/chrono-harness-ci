@@ -681,7 +681,7 @@ fn prepare_scope(
         {
             return Err("exact full context disagrees with automatic event endpoints".into());
         }
-        context["full_context"] = json!({"path":path,"sha256":crate::files::sha256(&raw),"semantic_digest":crate::codec::digest(&ctx)?});
+        context["full_context"] = json!({"path":path,"sha256":crate::files::sha256(&raw),"semantic_digest":crate::value_digest(&ctx)?});
     }
     Ok(context)
 }

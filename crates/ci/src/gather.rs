@@ -443,7 +443,7 @@ fn parent_units(
     let requirements =
         super::gating::requirements(root, c, d.base.clone(), d.candidate.clone(), d.initial)?;
     if requirements["required_units"] != json!(d.required_units)
-        || crate::codec::digest(&requirements["global_selected"])? != d.selection_sha256
+        || crate::value_digest(&requirements["global_selected"])? != d.selection_sha256
         || requirements["changed_paths"]
             .as_array()
             .ok_or("complete delta missing")?
