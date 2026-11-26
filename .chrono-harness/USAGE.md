@@ -15,3 +15,7 @@
 ## 本仓验证
 
 产品位于 [`crates/ci`](../crates/ci)。原生测试位于 [`crates/ci-tests`](../crates/ci-tests)。在仓库根目录运行 `mise exec -- ./check.sh` 按 Git 变更检查下载准入、库存和工作流生成的证明与原生消费者。汇总读取固定候选的单元原件。
+
+## 单元工作流的 Actions 依赖
+
+宿主可以在 `.chrono-harness/ci/units.json` 顶层指定 `"actions_lock": ".github/workflows/actions.lock"`，并删除 `collection.checkout_action` 和 `collection.upload_artifact_action`。使用 GitHub 的 `gh actions-lock` 生成锁文件，将该文件与工作流一起提交。生成器读取该工作流在 v0.0.3 锁中的 GitHub.com checkout 和 upload-artifact 引用，并核对仓库身份及提交摘要。CI 检测器从事件固定提交读取同一个路径。直接指定这两个 Action 的完整提交 SHA 仍是可选配置。

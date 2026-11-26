@@ -1,5 +1,8 @@
 //! CI 配置的字面单行判断及原生缓存登记准入，供现役投影使用。
 #[cfg(verus_keep_ghost)]
+#[path = "actions_lock.rs"]
+pub mod actions_lock;
+#[cfg(verus_keep_ghost)]
 #[path = "cache_action.rs"]
 pub mod cache_action;
 #[cfg(verus_keep_ghost)]
@@ -15,6 +18,9 @@ pub mod download_projection;
 #[path = "gating.rs"]
 pub mod gating;
 #[cfg(verus_keep_ghost)]
+#[path = "migrate.rs"]
+pub mod migrate;
+#[cfg(verus_keep_ghost)]
 #[path = "release.rs"]
 mod release_projection;
 #[cfg(verus_keep_ghost)]
@@ -23,6 +29,9 @@ pub mod single_projection;
 #[cfg(verus_keep_ghost)]
 #[path = "startup.rs"]
 pub mod startup;
+#[cfg(verus_keep_ghost)]
+#[path = "units.rs"]
+pub mod units;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]

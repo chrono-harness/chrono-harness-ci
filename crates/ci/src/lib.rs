@@ -32,6 +32,8 @@ use std::fs;
 #[cfg(not(verus_keep_ghost))]
 use std::path::{Path, PathBuf};
 #[cfg(not(verus_keep_ghost))]
+mod actions_lock;
+#[cfg(not(verus_keep_ghost))]
 pub mod cache;
 #[cfg(not(verus_keep_ghost))]
 mod cache_action;
@@ -91,7 +93,9 @@ pub struct Config {
     pub branch_creation_base_ref: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub push_baselines: Vec<PushBaseline>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub checkout_action: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub upload_artifact_action: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub include_hidden_files: bool,
@@ -228,7 +232,13 @@ fn decode_projection(bytes: &[u8]) -> Result<Projection, String> {
 }
 #[cfg(not(verus_keep_ghost))]
 fn validate(c: &Config) -> Result<(), String> {
+    validate_action_pins(c)?;
     validate_policy(c, false)
+}
+#[cfg(not(verus_keep_ghost))]
+fn validate_action_pins(c: &Config) -> Result<(), String> {
+    action(&c.checkout_action, "actions/checkout")?;
+    action(&c.upload_artifact_action, "actions/upload-artifact")
 }
 #[cfg(not(verus_keep_ghost))]
 fn validate_policy(c: &Config, full_policy: bool) -> Result<(), String> {
@@ -340,12 +350,11 @@ fn validate_policy(c: &Config, full_policy: bool) -> Result<(), String> {
             return Err("ambiguous overlapping push baseline prefixes".into());
         }
     }
-    action(&c.checkout_action, "actions/checkout")?;
-    action(&c.upload_artifact_action, "actions/upload-artifact")?;
     Ok(())
 }
 #[cfg(not(verus_keep_ghost))]
 pub fn render(c: &Config, config_path: &str) -> Result<String, String> {
+    validate_action_pins(c)?;
     let job = render_job(c, config_path, None, "chrono-check", false)?;
     let job = if let Some(cache) = &c.persistent_cache {
         if !single_check_cache(cache.jobs.len()) {
@@ -678,6 +687,7 @@ pub fn prepare(
     payload: &Value,
     workflow_revision: &str,
 ) -> Result<Value, String> {
+    validate_action_pins(c)?;
     prepare_policy(root, c, event, payload, workflow_revision, false)
 }
 #[cfg(not(verus_keep_ghost))]

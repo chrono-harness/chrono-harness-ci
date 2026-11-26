@@ -1,4 +1,8 @@
 #[cfg(verus_keep_ghost)]
+#[path = "actions_lock.rs"]
+mod lock_expectations;
+
+#[cfg(verus_keep_ghost)]
 #[path = "proof_support/ci/cache.rs"]
 mod cache_expectations;
 

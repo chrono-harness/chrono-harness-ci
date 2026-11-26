@@ -1,7 +1,29 @@
 //! Migrate explicit owned projections while preserving the host's next configuration.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::view::DeepView;
+
+verus! {
+pub fn previous_bytes_match(actual: &[u8], expected: &[u8]) -> (matches: bool)
+    ensures matches == (actual@ == expected@),
+{
+    proof {
+        assert(actual.deep_view() =~= actual@);
+        assert(expected.deep_view() =~= expected@);
+    }
+    <&[u8]>::exec_eq(actual,expected)
+}
+}
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use std::collections::BTreeMap;
 
+#[cfg(not(verus_keep_ghost))]
 fn source_path(path: &str) -> Result<(), String> {
     relative_path(path)?;
     if !path.starts_with(".chrono-harness/ci/") {
@@ -10,9 +32,14 @@ fn source_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn previous(projection: &Projection, source: &str) -> Result<BTreeMap<String, String>, String> {
+#[cfg(not(verus_keep_ghost))]
+fn previous(
+    root: &Path,
+    projection: &Projection,
+    source: &str,
+) -> Result<BTreeMap<String, String>, String> {
     match projection {
-        Projection::Units(c) => units::render(c, source),
+        Projection::Units(c) => units::render_from(c, source, |path| units::read_lock(root, path)),
         Projection::Check(c) => {
             Ok(BTreeMap::from([(c.workflow_path.clone(), render(c, source)?)]))
         }
@@ -20,9 +47,10 @@ fn previous(projection: &Projection, source: &str) -> Result<BTreeMap<String, St
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn exact(root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
     let actual = fs::read(no_symlink_parents(root, path)?).map_err(|e| format!("{path}: {e}"))?;
-    if actual != expected {
+    if !previous_bytes_match(&actual, expected) {
         return Err(format!(
             "previous projection differs; preserve host edits: {path}"
         ));
@@ -30,6 +58,7 @@ fn exact(root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Result<String, String> {
     relative_path(input)?;
     source_path(old_source)?;
@@ -40,7 +69,7 @@ pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Resu
     let old_bytes = fs::read(no_symlink_parents(root, input)?).map_err(|e| e.to_string())?;
     let source_bytes = fs::read(no_symlink_parents(root, source)?).map_err(|e| e.to_string())?;
     let old_projection = decode_projection(&old_bytes)?;
-    let old = previous(&old_projection, old_source)?;
+    let old = previous(root, &old_projection, old_source)?;
     let prior_inventory = match &old_projection {
         Projection::Check(c) => inventory_output(c)?.map(|(p, b)| (p.to_owned(), b)),
         _ => None,
@@ -48,7 +77,7 @@ pub fn migrate(root: &Path, input: &str, old_source: &str, source: &str) -> Resu
     let new = match decode_projection(&source_bytes)? {
         Projection::Units(next) if prior_inventory.is_none() => {
             units::profile(root, &next)?;
-            units::render(&next, source)?
+            units::render_from(&next, source, |path| units::read_lock(root, path))?
         }
         Projection::Check(next) if prior_inventory.is_some() => {
             let inventory = inventory_output(&next)?.map(|(p, b)| (p.to_owned(), b));
