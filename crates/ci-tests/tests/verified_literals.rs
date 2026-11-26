@@ -40,6 +40,7 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::string::StringSliceAdditionalSpecFns;
 
+#[cfg(verus_keep_ghost)]
 verus! {
 #[cfg(verus_keep_ghost)]
 fn wire_integer_boundary() {
@@ -481,7 +482,6 @@ fn installed_runner_hashes_across_the_read_buffer_boundary() {
     );
 }
 
-
 #[cfg(not(verus_keep_ghost))]
 #[test]
 fn nested_event_digest_matches_the_runner_binary64_wire() {
@@ -491,5 +491,8 @@ fn nested_event_digest_matches_the_runner_binary64_wire() {
             9_007_199_254_740_993u64, -9_007_199_254_740_993i64, u64::MAX]
     });
     // Independent digest of the runner's canonical bytes, including the rounded u64 maximum.
-    assert_eq!(chrono_ci::value_digest(&event).unwrap(), "189685511b045bfa1f343d2c6c7dc720eaf7369102c0dc44da88753ccfac85f7");
+    assert_eq!(
+        chrono_ci::value_digest(&event).unwrap(),
+        "189685511b045bfa1f343d2c6c7dc720eaf7369102c0dc44da88753ccfac85f7"
+    );
 }
