@@ -18,6 +18,8 @@ name = "installed_runner"
 path = "tests/installed_runner.rs"
 
 [dev-dependencies]
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "std"] }
+sha2 = "0.10"
 tempfile = "3"
 
 [[test]]
@@ -27,3 +29,7 @@ path = "tests/native_cache_action.rs"
 [[example]]
 name = "release_observation"
 path = "tests/verified_download.rs"
+
+[[test]]
+name = "deployed_host"
+path = "../../.chrono-harness/ci/host_adapters.rs"
