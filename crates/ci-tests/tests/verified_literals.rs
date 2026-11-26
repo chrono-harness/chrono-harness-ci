@@ -42,6 +42,14 @@ use vstd::string::StringSliceAdditionalSpecFns;
 
 verus! {
 #[cfg(verus_keep_ghost)]
+fn wire_integer_boundary() {
+    let exact = policy::codec::needs_binary64(9007199254740991);
+    let boundary = policy::codec::needs_binary64(9007199254740992);
+    let rounded = policy::codec::needs_binary64(9007199254740993);
+    assert(!exact && boundary && rounded);
+}
+
+#[cfg(verus_keep_ghost)]
 fn digest_wire_pairs(digest: &[u8; 32], at: usize)
     requires at < 32,
 {
@@ -471,4 +479,17 @@ fn installed_runner_hashes_across_the_read_buffer_boundary() {
         chrono_ci::units::installed_runner_sha256(root.path(), "runner").unwrap(),
         "008ffc88d3c96a9f307524eb361e47c5222a887fc45fa0c1fb8d429c5c23b430"
     );
+}
+
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn nested_event_digest_matches_the_runner_binary64_wire() {
+    let event = serde_json::json!({
+        "key": "9007199254740993",
+        "array": [9_007_199_254_740_991u64, 9_007_199_254_740_992u64,
+            9_007_199_254_740_993u64, -9_007_199_254_740_993i64, u64::MAX]
+    });
+    // Independent digest of the runner's canonical bytes, including the rounded u64 maximum.
+    assert_eq!(chrono_ci::value_digest(&event).unwrap(), "189685511b045bfa1f343d2c6c7dc720eaf7369102c0dc44da88753ccfac85f7");
 }

@@ -19,10 +19,7 @@ pub fn unit_evidence_retention(days: Option<u16>, is_unit: bool) -> (retention: 
 #[cfg(not(verus_keep_ghost))]
 use super::*;
 #[cfg(not(verus_keep_ghost))]
-use crate::{
-    codec as wire,
-    files::{file_identity, sha256},
-};
+use crate::files::{file_identity, sha256};
 #[cfg(not(verus_keep_ghost))]
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -568,7 +565,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         run_id: number("GITHUB_RUN_ID")?,
         run_attempt: number("GITHUB_RUN_ATTEMPT")?,
         event,
-        event_sha256: wire::digest(&payload)?,
+        event_sha256: crate::value_digest(&payload)?,
         workflow_source_revision: revision,
         workflow_sha256: sha256(source.as_bytes()),
         provider_sha256: file_identity(&root.join(path))?.0,
@@ -586,7 +583,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
             .into(),
         changed_paths_count: count,
         required_units: required,
-        selection_sha256: wire::digest(&selected["global_selected"])?,
+        selection_sha256: crate::value_digest(&selected["global_selected"])?,
     };
     let raw = serde_json::to_string(&detection).map_err(|e| e.to_string())?;
     use std::io::Write;
@@ -639,7 +636,7 @@ pub(crate) fn native_detection(
         || d.run_attempt == 0
         || d.run_attempt > number("GITHUB_RUN_ATTEMPT")?
         || d.event != event
-        || d.event_sha256 != wire::digest(payload)?
+        || d.event_sha256 != crate::value_digest(payload)?
         || d.workflow_source_revision != revision
         || d.candidate != candidate
         || d.event_head != event_head

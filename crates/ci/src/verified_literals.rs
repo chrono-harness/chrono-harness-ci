@@ -12,6 +12,9 @@ pub mod cache_projection;
 #[path = "check_inputs.rs"]
 pub mod check_inputs;
 #[cfg(verus_keep_ghost)]
+#[path = "codec.rs"]
+pub mod codec;
+#[cfg(verus_keep_ghost)]
 #[path = "downloads.rs"]
 pub mod download_projection;
 #[cfg(verus_keep_ghost)]

@@ -54,16 +54,13 @@ pub fn source_root<F>(absolute: bool, compare: F) -> (out: Result<bool, String>)
 #[cfg(not(verus_keep_ghost))]
 use super::*;
 #[cfg(not(verus_keep_ghost))]
+use crate::files::{file_identity, sha256};
+#[cfg(not(verus_keep_ghost))]
 use crate::preparation::{
     self as prepared, Context, InputRequest, Originals, PreparedCheck, Selection,
 };
 #[cfg(not(verus_keep_ghost))]
 use crate::units::Scope;
-#[cfg(not(verus_keep_ghost))]
-use crate::{
-    codec as wire,
-    files::{file_identity, sha256},
-};
 #[cfg(not(verus_keep_ghost))]
 use std::{collections::BTreeMap, io::Read};
 
@@ -304,7 +301,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                     .path,
                 raw: bytes.to_vec(),
                 sha256: sha256(bytes),
-                semantic_digest: wire::digest(&decode::<Value>(bytes)?)?,
+                semantic_digest: crate::value_digest(&decode::<Value>(bytes)?)?,
             };
             (evidence, Some(ctx), c.scope.clone())
         } else if matches!(
@@ -396,7 +393,7 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
                 Some(Context {
                     path: original.path,
                     sha256: sha256(&raw),
-                    semantic_digest: wire::digest(&ctx)?,
+                    semantic_digest: crate::value_digest(&ctx)?,
                     raw,
                 })
             } else {
