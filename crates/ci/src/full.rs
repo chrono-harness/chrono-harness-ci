@@ -1,23 +1,32 @@
 //! Fixed full-governance context transport; the configured judges own admission.
+#[cfg(not(verus_keep_ghost))]
 use super::{action, full_oid, output_preflight, scalar, shell, write_file};
+#[cfg(not(verus_keep_ghost))]
 use crate::units::Scope;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     codec::decode,
     files::{no_symlink_parents, relative_path, sha256},
     units::{self, path_overlap as overlap},
 };
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Deserializer, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, path::Path};
 
-pub const SCHEMA: &str = "chrono-github-full-ci/v2";
+#[cfg(not(verus_keep_ghost))]
 const MARKER: &str = "# chrono-ci: owned github-full-ci/v1\n";
+#[cfg(not(verus_keep_ghost))]
 const ADOPTED: &str = ".chrono-harness/ci/full.json";
 
+#[cfg(not(verus_keep_ghost))]
 fn marker(path: &str) -> String {
     format!("{MARKER}# chrono-ci: full source {}\n", scalar(path))
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -44,10 +53,12 @@ pub struct Config {
     pub artifact_directory: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn scope_present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Scope>, D::Error> {
     Scope::deserialize(d).map(Some)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn literal(value: &str) -> Result<(), String> {
     if !crate::verified_literals::valid_literal(value.as_bytes()) {
         return Err("full CI settings must be literal single-line values".into());
@@ -55,13 +66,15 @@ fn literal(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn validate(c: &Config) -> Result<(), String> {
-    if c.schema != SCHEMA
-        || c.name.is_empty()
-        || c.runs_on.is_empty()
-        || c.timeout_minutes == 0
-        || c.bootstrap.first().is_none_or(String::is_empty)
-    {
+    if !workflow_header(
+        &c.schema,
+        &c.name,
+        &c.runs_on,
+        c.timeout_minutes,
+        c.bootstrap.first().map(String::as_str),
+    ) {
         return Err("invalid full CI schema/name/runner/bootstrap/bounds".into());
     }
     for value in [&c.name, &c.runs_on, &c.artifact_directory]
@@ -122,6 +135,7 @@ pub(crate) fn validate(c: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn source_path(c: &Config, path: &str) -> Result<(), String> {
     relative_path(path)?;
     literal(path)?;
@@ -145,6 +159,7 @@ fn source_path(c: &Config, path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn argv(c: &Config) -> Vec<String> {
     let mut args = vec![c.runner.clone(), "check".into()];
     if let Some(scope) = &c.scope {
@@ -153,6 +168,7 @@ pub fn argv(c: &Config) -> Vec<String> {
     args
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub fn render(c: &Config, config_path: &str) -> Result<String, String> {
     validate(c)?;
     source_path(c, config_path)?;
@@ -219,6 +235,7 @@ jobs:
     ))
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn scope_preflight(root: &Path, c: &Config) -> Result<(), String> {
     if let Some(Scope::Collect { manifest }) = &c.scope {
         // Evidence provisioning and admission remain caller/bootstrap and full-core work.
@@ -227,6 +244,7 @@ fn scope_preflight(root: &Path, c: &Config) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Result<bool, String> {
     let output = render(c, path)?;
     scope_preflight(root, c)?;
@@ -243,6 +261,7 @@ pub(crate) fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Res
     Ok(!same)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn init(root: &Path, incoming: Config) -> Result<bool, String> {
     let target = no_symlink_parents(root, ADOPTED)?;
     let existing = target.exists();
@@ -267,6 +286,7 @@ pub(crate) fn init(root: &Path, incoming: Config) -> Result<bool, String> {
     Ok(!existing || !same)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn matching_output(root: &Path, path: &str, bytes: &[u8]) -> Result<bool, String> {
     match fs::read(no_symlink_parents(root, path)?) {
         Ok(current) if current == bytes => Ok(true),
@@ -277,6 +297,7 @@ fn matching_output(root: &Path, path: &str, bytes: &[u8]) -> Result<bool, String
 }
 
 /// The dispatch and automatic units consumers share exact full context parsing.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn context_input(bytes: &[u8]) -> Result<Value, String> {
     let ctx: Value = decode(bytes)?;
     if ctx["schema_version"] != 2
@@ -291,6 +312,7 @@ pub(crate) fn context_input(bytes: &[u8]) -> Result<Value, String> {
     }
     Ok(ctx)
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result<Value, String> {
     let cfg = crate::runtime_session::Session::selected_config(root, runner, config)?;
     let path = cfg["registries"]["judges"]
@@ -335,6 +357,7 @@ pub(crate) fn executable_pins(root: &Path, config: &str, runner: &str) -> Result
     )
 }
 /// Preserve caller context bytes separately from transport observations. Does not judge its policy.
+#[cfg(not(verus_keep_ghost))]
 pub fn prepare(
     root: &Path,
     path: &str,
@@ -421,4 +444,23 @@ pub fn prepare(
         write_file(root, &c.preparation_path, &report_bytes)?;
     }
     Ok(report)
+}
+
+use vstd::contrib::exec_spec::ExecSpecEq;
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+pub const SCHEMA: &'static str = "chrono-github-full-ci/v2";
+pub fn workflow_header(schema: &str, name: &str, runner: &str, timeout: u32, command: Option<&str>)
+    -> (valid: bool)
+    ensures valid == (schema@ == "chrono-github-full-ci/v2"@ && name@ != ""@ && runner@ != ""@
+        && timeout > 0 && match command { Some(first) => first@ != ""@, None => false }),
+{
+    <&str>::exec_eq(schema,SCHEMA)
+        && !<&str>::exec_eq(name,"") && !<&str>::exec_eq(runner,"") && timeout > 0
+        && match command { Some(first) => !<&str>::exec_eq(first,""), None => false }
+}
 }

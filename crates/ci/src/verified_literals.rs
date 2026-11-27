@@ -49,6 +49,35 @@ use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::view::DeepView;
 
+#[cfg(verus_keep_ghost)]
+#[path = "runtime_session.rs"]
+pub mod session_completion;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::runtime_session::complete_line;
+#[cfg(verus_keep_ghost)]
+pub use session_completion::complete_line;
+#[cfg(verus_keep_ghost)]
+#[path = "main.rs"]
+pub mod cli_completion;
+#[cfg(verus_keep_ghost)]
+#[path = "event_git.rs"]
+pub mod event_inputs;
+#[cfg(verus_keep_ghost)]
+#[path = "full.rs"]
+pub mod full_profile;
+#[cfg(verus_keep_ghost)]
+#[path = "initial.rs"]
+pub mod initial_profile;
+#[cfg(verus_keep_ghost)]
+#[path = "preparation.rs"]
+pub mod profile_selection;
+#[cfg(verus_keep_ghost)]
+#[path = "storage.rs"]
+pub mod retained_descriptors;
+#[cfg(not(verus_keep_ghost))]
+pub use crate::event_git::pull_request_base;
+#[cfg(verus_keep_ghost)]
+pub use event_inputs::pull_request_base;
 verus! {
 
 pub enum NativeJobState { Succeeded, ReadDetail { id: u64 }, Rejected }
@@ -91,22 +120,6 @@ pub fn full_oid(value: &str) -> (valid: bool)
 {
     let bytes = value.as_bytes();
     (bytes.len() == 40 || bytes.len() == 64) && matches!(hex_content(bytes), Some(true))
-}
-
-/// Git returns parents in order; the event head must be the second parent.
-pub fn pull_request_base<'a>(parents: &'a [String], head: &str) -> (base: Option<&'a str>)
-    ensures
-        (base is Some) == (parents.len() == 2 && object_id(vstd::utf8::encode_utf8(parents@[0]@))
-            && object_id(head.spec_bytes()) && parents@[1]@ == head@),
-        base is Some ==> base.unwrap()@ == parents@[0]@,
-{
-    if parents.len() != 2 { return None; }
-    let base = parents[0].as_str();
-    if full_oid(base) && full_oid(head) && <&str>::exec_eq(parents[1].as_str(), head) {
-        Some(base)
-    } else {
-        None
-    }
 }
 
 pub open spec fn optional_text_is(value: Option<&str>, expected: &str) -> bool {

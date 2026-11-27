@@ -1,6 +1,9 @@
 //! Blocking JSON lines connection to a single native runner capability.
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::Value;
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{BufRead, BufReader, Write},
     os::{fd::OwnedFd, unix::net::UnixStream},
@@ -8,12 +11,14 @@ use std::{
     process::{Child, ChildStdout, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Session {
     child: Child,
     pub(crate) socket: Option<UnixStream>,
     output: BufReader<ChildStdout>,
     name: &'static str,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     pub fn open(root: &Path, program: &Path, name: &'static str) -> Result<Self, String> {
         let (socket, input) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -78,7 +83,7 @@ impl Session {
         self.output
             .read_until(b'\n', &mut line)
             .map_err(|e| e.to_string())?;
-        if line.last() != Some(&b'\n') {
+        if !complete_line(&line) {
             return Err("E_PROTOCOL: incomplete runner response".into());
         }
         serde_json::from_slice::<Result<T, String>>(&line)
@@ -96,6 +101,7 @@ impl Session {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 impl Drop for Session {
     fn drop(&mut self) {
         if let Some(socket) = self.socket.take() {
@@ -103,4 +109,16 @@ impl Drop for Session {
         }
         let _ = self.child.wait();
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+pub fn complete_line(bytes: &[u8]) -> (valid: bool)
+    ensures valid == (bytes.len() > 0 && bytes@[bytes.len()-1] == 10u8),
+{
+    bytes.len() > 0 && bytes[bytes.len()-1] == 10u8
+}
 }
