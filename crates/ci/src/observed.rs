@@ -1,7 +1,35 @@
 //! The provider retains bounded bytes and its own business receipt from the installed process owner.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+
+/// A capture error from the owner takes precedence over incomplete streams.
+pub fn capture_error<'a>(failure: Option<&'a str>, stdout_complete: bool, stderr_complete: bool)
+    -> (error: Option<&'a str>)
+    ensures match failure {
+        Some(original) => error == Some(original),
+        None => if stdout_complete && stderr_complete { error is None } else {
+            error is Some && error.unwrap()@ == "incomplete observed command streams"@
+        },
+    },
+{
+    match failure {
+        Some(error) => Some(error),
+        None if stdout_complete && stderr_complete => None,
+        None => Some("incomplete observed command streams"),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use crate::files::sha256;
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(verus_keep_ghost))]
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -9,6 +37,7 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CommandSpec {
@@ -20,6 +49,7 @@ pub(crate) struct CommandSpec {
     pub timeout_seconds: u64,
     pub output_limit_bytes: usize,
 }
+#[cfg(not(verus_keep_ghost))]
 impl CommandSpec {
     pub fn validate(&self) -> Result<(), String> {
         if self.program.is_empty()
@@ -37,6 +67,7 @@ impl CommandSpec {
         Ok(())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Deserialize)]
 pub(crate) struct Observation {
     pub argv: Vec<String>,
@@ -46,6 +77,8 @@ pub(crate) struct Observation {
     pub environment_digest: String,
     pub exit_code: i32,
     pub failure: Option<String>,
+    pub stdout_complete: bool,
+    pub stderr_complete: bool,
     launcher_pid: Option<u32>,
     child_pid: Option<u32>,
     stdout_size: usize,
@@ -58,6 +91,18 @@ pub(crate) struct Observation {
     pub stderr_bytes: Vec<u8>,
 }
 
+#[cfg(not(verus_keep_ghost))]
+impl Observation {
+    pub fn capture_error(&self) -> Option<&str> {
+        capture_error(
+            self.failure.as_deref(),
+            self.stdout_complete,
+            self.stderr_complete,
+        )
+    }
+}
+
+#[cfg(not(verus_keep_ghost))]
 fn receive(mut input: impl Read, limit: usize) -> Result<Observation, String> {
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
@@ -104,6 +149,7 @@ fn receive(mut input: impl Read, limit: usize) -> Result<Observation, String> {
 }
 
 /// Use the registered program with the source process's input, deadline and ownership descriptors.
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn run(
     root: &Path,
     runner: &Path,
@@ -161,6 +207,7 @@ pub(crate) fn run(
     Ok(p)
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn installed(root: &Path) -> Result<PathBuf, String> {
     let local = root.join(".chrono-harness/bin/chrono-harness");
     if local.is_file() {

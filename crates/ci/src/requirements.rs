@@ -1,11 +1,43 @@
 //! Obtain DELTA and retained-original decisions from the installed adjudicator.
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+verus! {
+
+pub enum Reply<'a> {
+    Failed(&'a str),
+    Exited(i32, &'a [u8]),
+    Output(&'a [u8]),
+}
+
+pub fn query_reply<'a>(error: Option<&'a str>, exit: i32, stdout: &'a [u8], stderr: &'a [u8])
+    -> (reply: Reply<'a>)
+    ensures reply == match error {
+        Some(original) => Reply::Failed(original),
+        None => if exit == 0 { Reply::Output(stdout) } else { Reply::Exited(exit, stderr) },
+    },
+{
+    match error {
+        Some(original) => Reply::Failed(original),
+        None if exit == 0 => Reply::Output(stdout),
+        None => Reply::Exited(exit, stderr),
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use super::*;
+#[cfg(not(verus_keep_ghost))]
 use crate::{
     files::{file_identity, resolve_program},
     observed::CommandSpec,
 };
+#[cfg(not(verus_keep_ghost))]
 use std::time::Duration;
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn request(
     root: &Path,
     config: &units::Config,
@@ -50,15 +82,17 @@ pub(crate) fn request(
         &file_identity(&executable)?.0,
         remaining.unwrap_or(timeout).min(timeout),
     )?;
-    if let Some(failure) = result.failure {
-        return Err(failure);
+    match query_reply(
+        result.capture_error(),
+        result.exit_code,
+        &result.stdout_bytes,
+        &result.stderr_bytes,
+    ) {
+        Reply::Failed(error) => Err(error.into()),
+        Reply::Exited(code, diagnostic) => Err(format!(
+            "requirements-v1 exited {code}: {}",
+            String::from_utf8_lossy(diagnostic).trim_end()
+        )),
+        Reply::Output(bytes) => decode(bytes),
     }
-    if result.exit_code != 0 {
-        return Err(format!(
-            "requirements-v1 exited {}: {}",
-            result.exit_code,
-            String::from_utf8_lossy(&result.stderr_bytes).trim_end()
-        ));
-    }
-    decode(&result.stdout_bytes)
 }

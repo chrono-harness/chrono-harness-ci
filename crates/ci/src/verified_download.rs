@@ -7,6 +7,23 @@ use vstd::prelude::*;
 use vstd::contrib::exec_spec::ExecSpecEq;
 
 #[cfg(verus_keep_ghost)]
+#[path = "observed.rs"]
+mod observed;
+#[cfg(verus_keep_ghost)]
+#[path = "requirements.rs"]
+mod requirements;
+#[cfg(verus_keep_ghost)]
+pub use self::{
+    observed::capture_error,
+    requirements::{Reply, query_reply},
+};
+#[cfg(not(verus_keep_ghost))]
+pub use crate::{
+    observed::capture_error,
+    requirements::{Reply, query_reply},
+};
+
+#[cfg(verus_keep_ghost)]
 #[path = "gather.rs"]
 mod gather;
 #[cfg(verus_keep_ghost)]

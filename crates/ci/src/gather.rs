@@ -161,7 +161,7 @@ impl<'a> Transport<'a> {
             Duration::from_secs(self.config.timeout_seconds),
             self.config.output_limit_bytes,
         )?;
-        if p.failure.is_some() || p.exit_code != 0 {
+        if p.capture_error().is_some() || p.exit_code != 0 {
             return Err(
                 "GitHub transport failed; original bounded process evidence retained".into(),
             );
@@ -202,7 +202,8 @@ impl<'a> Transport<'a> {
         observed_environment.retain(|key, _| !self.config.credential_environment.contains(key));
         self.observations.push(json!({"argv":p.argv,"cwd":p.cwd,"executable":p.executable,"sha256":p.sha256,
             "environment":observed_environment,"omitted_credentials":self.config.credential_environment,"original_environment_digest":p.environment_digest,
-            "stdin_sha256":sha256(&[]),"stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
+            "stdin_sha256":sha256(&[]),"stdout_complete":p.stdout_complete,"stderr_complete":p.stderr_complete,
+            "stdout_bytes":p.stdout_bytes,"stderr_bytes":p.stderr_bytes,
             "stdout_sha256":p.stdout_sha256,"stderr_sha256":p.stderr_sha256,"exit_code":p.exit_code,"failure":p.failure}));
         if let Some(budget) = &mut self.acquisition {
             budget.charge(p.stdout_bytes.len(), p.stderr_bytes.len());
@@ -324,14 +325,14 @@ impl<'a> Transport<'a> {
             let p = self.process(&args, remaining, output_limit)?;
             stdout_remaining = stdout_remaining.saturating_sub(p.stdout_bytes.len());
             stderr_remaining = stderr_remaining.saturating_sub(p.stderr_bytes.len());
-            let success = p.failure.is_none() && p.exit_code == 0;
+            let success = p.capture_error().is_none() && p.exit_code == 0;
             let status = super::verified_download::http_status(&p.stderr_bytes);
             let delay = policy
                 .as_ref()
                 .map(|p| Duration::from_secs(p.delay_seconds));
             let retry = super::verified_download::retry(
                 p.exit_code == 0,
-                p.failure.is_some(),
+                p.capture_error().is_some(),
                 attempt < attempts,
                 policy.as_ref().is_some_and(|policy| {
                     status.is_some_and(|s| policy.http_statuses.contains(&s))
