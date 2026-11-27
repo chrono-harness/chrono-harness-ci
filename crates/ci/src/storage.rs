@@ -1,7 +1,11 @@
 //! Live capability for the CI acquisition or inventory. Commands inherit the exact retained descriptors.
+#[cfg(not(verus_keep_ghost))]
 use crate::runtime_session::Session;
+#[cfg(not(verus_keep_ghost))]
 use serde::de::DeserializeOwned;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -11,9 +15,12 @@ use std::{
     process::Command,
     rc::{Rc, Weak},
 };
+#[cfg(not(verus_keep_ghost))]
 thread_local! { static ACTIVE:RefCell<BTreeMap<(PathBuf, PathBuf),Weak<RefCell<Session>>>> = RefCell::new(BTreeMap::new()); }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone)]
 pub(crate) struct Storage(Rc<RefCell<Session>>);
+#[cfg(not(verus_keep_ghost))]
 impl Storage {
     pub fn open(root: &Path, program: &Path) -> Result<Self, String> {
         let key = (root.to_owned(), program.to_owned());
@@ -98,6 +105,7 @@ impl Storage {
             .map_err(|e| e.to_string())
     }
 }
+#[cfg(not(verus_keep_ghost))]
 pub(crate) fn command(program: &Path) -> Result<Command, String> {
     let mut descriptors = Vec::new();
     ACTIVE.with(|all| -> Result<(), String> {
@@ -134,6 +142,7 @@ pub(crate) fn command(program: &Path) -> Result<Command, String> {
     Ok(command)
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl Session {
     fn append_descriptors(&mut self, result: &mut Vec<OwnedFd>) -> Result<(), String> {
         use rustix::net::{
@@ -164,7 +173,11 @@ impl Session {
                 flags,
             )
             .map_err(|e| e.to_string())?;
-            if msg.bytes != 1 || marker != [1] || msg.flags.contains(ReturnFlags::CTRUNC) {
+            if !transfer_marker(
+                msg.bytes,
+                marker[0],
+                msg.flags.contains(ReturnFlags::CTRUNC),
+            ) {
                 return Err("invalid retained descriptor transfer".into());
             }
             let before = result.len();
@@ -186,4 +199,16 @@ impl Session {
             offset += n;
         }
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+pub fn transfer_marker(bytes: usize, marker: u8, truncated: bool) -> (valid: bool)
+    ensures valid == (bytes == 1 && marker == 1u8 && !truncated),
+{
+    bytes == 1 && marker == 1u8 && !truncated
+}
 }

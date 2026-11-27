@@ -1,9 +1,15 @@
 //! CI produces the current preparation wire response; the installed owner validates it and retains its originals.
+#[cfg(not(verus_keep_ghost))]
 use crate::storage::Storage;
+#[cfg(not(verus_keep_ghost))]
 use serde::{Deserialize, Serialize};
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::path::{Path, PathBuf};
+#[cfg(not(verus_keep_ghost))]
 pub const RESPONSE: &str = "chrono-check-inputs/v1";
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Selection {
@@ -11,6 +17,7 @@ pub enum Selection {
     Unit { unit: String },
     Collect,
 }
+#[cfg(not(verus_keep_ghost))]
 impl Selection {
     pub fn argv(&self) -> Vec<String> {
         match self {
@@ -27,6 +34,7 @@ impl Selection {
         }
     }
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputRequest {
@@ -46,12 +54,14 @@ pub struct InputRequest {
     // Local collection uses the CI collection owner after local endpoints were observed.
     pub prepared: Option<PreparedCheck>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileBinding {
     pub path: String,
     pub sha256: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
@@ -60,6 +70,7 @@ pub struct Context {
     pub sha256: String,
     pub semantic_digest: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PreparedCheck {
@@ -75,6 +86,7 @@ pub struct PreparedCheck {
     pub evidence: Value,
     pub originals: Vec<Original>,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeArtifacts {
@@ -82,6 +94,7 @@ pub struct NativeArtifacts {
     pub config_sha256: String,
     pub directory: String,
 }
+#[cfg(not(verus_keep_ghost))]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Original {
@@ -89,7 +102,9 @@ pub struct Original {
     pub sha256: String,
 }
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct Originals(Storage);
+#[cfg(not(verus_keep_ghost))]
 impl Originals {
     pub(crate) fn open(root: &Path, runner: &str) -> Result<Self, String> {
         let path = crate::units::installed_runner_path(root, runner)?;
@@ -130,19 +145,35 @@ impl Originals {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 impl InputRequest {
     pub fn profile_for(&self, initial: bool) -> Result<&str, String> {
-        if initial && self.initial_profile.is_some() {
-            if self.selection != Selection::All {
-                return Err("initial inventory requires the standalone bare check".into());
-            }
-            Ok(&self
-                .initial_profile
+        selected_profile(
+            initial,
+            self.selection == Selection::All,
+            &self.profile,
+            self.initial_profile
                 .as_ref()
-                .ok_or("initial profile binding missing")?
-                .path)
-        } else {
-            Ok(&self.profile)
-        }
+                .map(|binding| binding.path.as_str()),
+        )
+        .ok_or_else(|| "initial inventory requires the standalone bare check".into())
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+pub fn selected_profile<'a>(initial: bool, bare: bool, regular: &'a str, alternate: Option<&'a str>)
+    -> (selected: Option<&'a str>)
+    ensures selected == if initial && alternate.is_some() {
+        if bare { alternate } else { None }
+    } else { Some(regular) },
+{
+    if initial {
+        if let Some(profile) = alternate { return if bare { Some(profile) } else { None }; }
+    }
+    Some(regular)
+}
 }

@@ -38,7 +38,7 @@ stem=${filename#lib}
 stem=${metadata%/*}/${stem%.rmeta}
 chrono-host-bootstrap check-compiler-sources native "$stem" src/actions_lock.rs src/units.rs src/migrate.rs src/check_inputs.rs src/codec.rs src/files.rs src/verified_literals.rs src/cache.rs src/downloads.rs src/gating.rs \
   src/release.rs src/lib.rs src/startup.rs src/verified_download.rs \
-  src/verified_inventory.rs src/inventory.rs src/full.rs src/cache_action.rs src/gather.rs src/observed.rs src/requirements.rs ||
+  src/verified_inventory.rs src/inventory.rs src/full.rs src/cache_action.rs src/gather.rs src/observed.rs src/requirements.rs src/runtime_session.rs src/storage.rs src/initial.rs src/preparation.rs src/event_git.rs ||
   coverage_failure "native library differs from required sources"
 
 src=crates/ci/src
@@ -54,7 +54,7 @@ inventory_tests_operation=verify.ci-inventory-tests
 
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_operation.rlib" "$src/verified_literals.rs" \
   "$src/actions_lock.rs" "$src/cache_action.rs" "$src/cache.rs" "$src/check_inputs.rs" "$src/codec.rs" "$src/downloads.rs" "$src/files.rs" "$src/gating.rs" "$src/migrate.rs" "$src/release.rs" "$src/lib.rs" \
-  "$src/startup.rs" "$src/units.rs"
+  "$src/startup.rs" "$src/units.rs" "$src/runtime_session.rs" "$src/main.rs" "$src/event_git.rs" "$src/full.rs" "$src/initial.rs" "$src/preparation.rs" "$src/storage.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs" "$src/observed.rs" "$src/requirements.rs" "$src/gather.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$inventory_operation.rlib" "$src/verified_inventory.rs" \
   "$src/inventory.rs"
@@ -62,7 +62,7 @@ chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-pro
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
   "$tests/actions_lock.rs" "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
   "$include/verified_literals.rs" "$include/actions_lock.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/check_inputs.rs" "$include/codec.rs" "$include/downloads.rs" "$include/files.rs" "$include/gating.rs" \
-  "$include/migrate.rs" "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$include/units.rs" "$support/release.rs" \
+  "$include/migrate.rs" "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$include/units.rs" "$include/runtime_session.rs" "$include/main.rs" "$include/event_git.rs" "$include/full.rs" "$include/initial.rs" "$include/preparation.rs" "$include/storage.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \
   "$support/../worktree/support/diagnostic_copy.rs" "$support/startup.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$inventory_tests_operation.rlib" "$tests/verified_inventory.rs" \

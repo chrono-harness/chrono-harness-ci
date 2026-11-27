@@ -42,6 +42,23 @@ use vstd::string::StringSliceAdditionalSpecFns;
 
 #[cfg(verus_keep_ghost)]
 verus! {
+
+fn preparation_and_cli_boundaries(current: &str, alternate: &str, code: u8) {
+    use policy::{cli_completion::diagnostic_exit,retained_descriptors::transfer_marker,
+        initial_profile::inventory_header,profile_selection::selected_profile,session_completion::complete_line};
+    let wrong = diagnostic_exit(code,None);
+    let agreed = diagnostic_exit(code,Some(code as i32));
+    let first = selected_profile(true,true,current,Some(alternate));
+    let scoped = selected_profile(true,false,current,Some(alternate));
+    let regular = selected_profile(false,false,current,Some(alternate));
+    let good = complete_line(&[42u8,10u8]); let cut = complete_line(&[42u8]);
+    let last = inventory_header("chrono-initial-check/v1",true,1,67108864);
+    let large = inventory_header("chrono-initial-check/v1",true,1,67108865);
+    let marker = transfer_marker(1,1,false); let lost = transfer_marker(1,1,true);
+    assert(!wrong && agreed && first==Some(alternate) && scoped.is_none() && regular==Some(current));
+    assert(good && !cut && last && !large && marker && !lost);
+}
+
 #[cfg(verus_keep_ghost)]
 fn wire_integer_boundary() {
     let exact = policy::codec::needs_binary64(9007199254740991);
@@ -534,4 +551,13 @@ fn aggregate_check_can_be_named_for_its_event() {
             format!("{} / {event}", config.collection.name);
         assert!(chrono_ci::units::validate(&collision).is_err());
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn runtime_replies_require_the_last_line_feed() {
+    use chrono_ci::verified_literals::complete_line;
+    assert!(complete_line(b"{\"ready\":true}\n"));
+    assert!(!complete_line(b"{\"ready\":true}"));
+    assert!(!complete_line(b""));
 }

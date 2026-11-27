@@ -1,4 +1,6 @@
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::{
     ffi::OsString,
     io::{self, BufRead, BufReader, Write},
@@ -6,6 +8,7 @@ use std::{
     process::{Command, ExitCode, Stdio},
 };
 
+#[cfg(not(verus_keep_ghost))]
 fn work(
     arguments: &[OsString],
     mut event: impl FnMut(Value) -> Result<(), String>,
@@ -32,6 +35,7 @@ fn work(
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
     let operation = arguments.get(1).and_then(|a| a.to_str()).unwrap_or("");
     let invalid = arguments.iter().any(|a| a.to_str().is_none());
@@ -62,7 +66,9 @@ fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
     let result: Result<u8, String> = (|| {
         let mut reply = String::new();
         reader.read_line(&mut reply).map_err(|e| e.to_string())?;
-        if serde_json::from_str::<Value>(&reply).ok() != Some(json!({"ready":true})) {
+        if !chrono_ci::verified_literals::complete_line(reply.as_bytes())
+            || serde_json::from_str::<Value>(&reply).ok() != Some(json!({"ready":true}))
+        {
             return Err("chrono-diagnostics did not open the CLI log".into());
         }
         let mut send = |value: Value| -> Result<(), String> {
@@ -79,7 +85,7 @@ fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
     drop(writer);
     let status = child.wait().map_err(|e| e.to_string())?;
     let result = result?;
-    if status.code() != Some(i32::from(result)) {
+    if !diagnostic_exit(result, status.code()) {
         return Err(format!(
             "chrono-diagnostics cli-events-v1 exited {status} after {result}"
         ));
@@ -87,6 +93,7 @@ fn logged(root: &Path, arguments: &[OsString]) -> Result<u8, String> {
     Ok(result)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn main() -> ExitCode {
     let arguments: Vec<_> = std::env::args_os().collect();
     let root = arguments
@@ -106,4 +113,16 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+pub fn diagnostic_exit(work: u8, observed: Option<i32>) -> (agrees: bool)
+    ensures agrees == (observed == Some(work as i32)),
+{
+    observed == Some(work as i32)
+}
 }

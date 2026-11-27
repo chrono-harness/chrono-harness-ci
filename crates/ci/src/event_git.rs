@@ -1,12 +1,17 @@
 //! Bound event acquisition; the selected reader owns process evidence.
-use crate::{Config, full_oid};
+#[cfg(not(verus_keep_ghost))]
+use crate::Config;
+#[cfg(not(verus_keep_ghost))]
 use serde_json::{Value, json};
+#[cfg(not(verus_keep_ghost))]
 use std::path::Path;
 
+#[cfg(not(verus_keep_ghost))]
 pub(crate) struct EventGit {
     runtime: std::cell::RefCell<crate::runtime_session::Session>,
     pub bound: bool,
 }
+#[cfg(not(verus_keep_ghost))]
 impl EventGit {
     pub(crate) fn open(
         root: &Path,
@@ -117,7 +122,7 @@ impl EventGit {
     ) -> Result<String, String> {
         self.require_commit(workflow_revision)?;
         let parents = self.parents(workflow_revision)?;
-        crate::verified_literals::pull_request_base(&parents, head)
+        pull_request_base(&parents, head)
             .map(str::to_owned)
             .ok_or_else(|| "pull-request workflow revision must have exactly two parents and the event head as second parent".into())
     }
@@ -143,4 +148,36 @@ impl EventGit {
             ),
         }
     }
+}
+
+#[cfg(verus_keep_ghost)]
+use super::{full_oid, object_id};
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_literals::full_oid;
+use vstd::contrib::exec_spec::ExecSpecEq;
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
+
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+verus! {
+/// Git returns parents in order; the event head must be the second parent.
+pub fn pull_request_base<'a>(parents: &'a [String], head: &str) -> (base: Option<&'a str>)
+    ensures
+        (base is Some) == (parents.len() == 2 && object_id(vstd::utf8::encode_utf8(parents@[0]@))
+            && object_id(head.spec_bytes()) && parents@[1]@ == head@),
+        base is Some ==> base.unwrap()@ == parents@[0]@,
+{
+    if parents.len() != 2 { return None; }
+    let base = parents[0].as_str();
+    if full_oid(base) && full_oid(head) && <&str>::exec_eq(parents[1].as_str(), head) {
+        Some(base)
+    } else {
+        None
+    }
+}
+
+
 }
