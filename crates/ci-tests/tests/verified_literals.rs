@@ -496,3 +496,42 @@ fn nested_event_digest_matches_the_runner_binary64_wire() {
         "189685511b045bfa1f343d2c6c7dc720eaf7369102c0dc44da88753ccfac85f7"
     );
 }
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn aggregate_check_can_be_named_for_its_event() {
+    use chrono_ci::units::{Config, render_from};
+
+    let registered = include_str!("../../../.chrono-harness/ci/units.json");
+    let lock = include_bytes!("../../../.github/workflows/actions.lock");
+    let mut config: Config = serde_json::from_str(registered).unwrap();
+    let path = ".chrono-harness/ci/units.json";
+    let render = |config: &Config| render_from(config, path, |_| Ok(lock.to_vec())).unwrap();
+    let workflow = config.collection.workflow_path.clone();
+    let original = render(&config);
+    config.job_gating.aggregate_name_by_event = true;
+    let named = render(&config);
+    let before = format!(
+        "  aggregate:\n    name: {}",
+        serde_json::to_string(&config.collection.name).unwrap()
+    );
+    let after = format!(
+        "  aggregate:\n    name: {}",
+        serde_json::to_string(&format!(
+            "{} / ${{{{ github.event_name }}}}",
+            config.collection.name
+        ))
+        .unwrap()
+    );
+    assert!(original[&workflow].contains(&before));
+    assert_eq!(
+        named[&workflow],
+        original[&workflow].replace(&before, &after)
+    );
+    for event in ["pull_request", "push"] {
+        let mut collision = config.clone();
+        collision.units.values_mut().next().unwrap().name =
+            format!("{} / {event}", config.collection.name);
+        assert!(chrono_ci::units::validate(&collision).is_err());
+    }
+}

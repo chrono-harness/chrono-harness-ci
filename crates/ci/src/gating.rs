@@ -96,6 +96,8 @@ pub fn completed_native_job(
 pub struct Config {
     pub schema: String,
     pub detector: Detector,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub aggregate_name_by_event: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence_retention_days: Option<u16>,
     #[serde(
@@ -148,6 +150,14 @@ pub(crate) fn validate(c: &units::Config, g: &Config) -> Result<(), String> {
     {
         return Err("detector and unit/aggregate job names must be distinct".into());
     }
+    if g.aggregate_name_by_event {
+        for event in ["pull_request", "push"] {
+            let aggregate = format!("{} / {event}", c.collection.name);
+            if c.units.values().any(|unit| unit.name == aggregate) {
+                return Err("unit job name collides with event-specific aggregate".into());
+            }
+        }
+    }
     let mut detector = c.collection.clone();
     detector.runs_on = g.detector.runs_on.clone();
     detector.timeout_minutes = g.detector.timeout_minutes;
@@ -196,7 +206,10 @@ pub fn job_id(unit: &str) -> String {
 
 #[cfg(not(verus_keep_ghost))]
 fn job(c: &units::Config, path: &str, unit: Option<&str>) -> Result<String, String> {
-    let w = c.workflow(unit)?;
+    let mut w = c.workflow(unit)?;
+    if unit.is_none() && c.job_gating.aggregate_name_by_event {
+        w.name.push_str(" / ${{ github.event_name }}");
+    }
     let scope = c.scope(unit);
     let artifact = unit
         .map(|u| format!("chrono-unit-{u}"))

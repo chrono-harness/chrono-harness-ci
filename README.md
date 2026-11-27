@@ -14,6 +14,8 @@
 
 独立仓库可以在现有 GitHub 作业中使用自己的原生检查命令和编译缓存。在 `.chrono-harness/ci/` 登记 `chrono-github-cache-actions/v1`，其中 `jobs.<job>.command` 是原命令的参数数组，`action_path` 是本仓 `.github/actions/<名称>/action.yml`，`persistent_cache` 采用现有 `chrono-github-cache/v1` 登记。运行 `chrono-ci generate --host-root . --config <登记路径>`，在工具已安装的 GitHub 作业中以 `uses: ./.github/actions/<名称>` 调用生成的 action。相同登记使用 `chrono-ci verify` 检查。重复保存者会在写任何 action 前报错，缓存目录由规划器核对。原生 action 的下载目录也作为规划器缓存登记。
 
+宿主可设置 `job_gating.aggregate_name_by_event: true`，让汇总作业报告 `<collection.name> / pull_request` 或 `<collection.name> / push`。同一分支接收两类事件时，分支保护可指定 PR 名称，分支 push 继续运行已登记的检查。
+
 需要在 detector 的启动步骤读取 Actions 原始产物时，宿主可登记 `job_gating.detector.bootstrap_github_token: true`。生成的步骤通过 `GH_TOKEN` 接收该工作流已有的只读凭据，默认不传递。
 
 ## 工作流判定的证明
