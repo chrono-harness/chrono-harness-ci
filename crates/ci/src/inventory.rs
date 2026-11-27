@@ -219,6 +219,7 @@ impl Inventory<'_> {
         self.receipts.push(
             json!({"action":action,"operation":string(&row["operation"])?,
             "argv":argv,"exit_code":process.exit_code,"error":process.failure,
+            "stdout_complete":process.stdout_complete,"stderr_complete":process.stderr_complete,
             "duration_seconds":start.elapsed().as_secs_f64(),"stdout":stdout,"stderr":stderr,
             "stdout_sha256":process.stdout_sha256,"stderr_sha256":process.stderr_sha256}),
         );
@@ -226,7 +227,7 @@ impl Inventory<'_> {
             "receipts.json",
             &serde_json::to_vec_pretty(&self.receipts).map_err(|e| e.to_string())?,
         )?;
-        if let Some(failure) = process.failure {
+        if let Some(failure) = process.capture_error() {
             return Err(format!("failed listing: {label}: {failure}"));
         }
         if process.exit_code != 0 {

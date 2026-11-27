@@ -10,9 +10,9 @@ pub fn native_check_recipe() -> &'static str { include_str!("../../check.sh") }
 
 /// Each deployed proof command must bind the actual gather module.
 pub fn gather_source_check(command: &str, independent: bool) -> (matches: bool)
-    ensures matches == (command@ == if independent { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/gather.rs""#@ } else { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs" "$src/gather.rs""#@ }),
+    ensures matches == (command@ == if independent { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/observed.rs" "$include/requirements.rs" "$include/gather.rs""#@ } else { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs" "$src/observed.rs" "$src/requirements.rs" "$src/gather.rs""#@ }),
 {
-    let expected = if independent { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/gather.rs""# } else { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs" "$src/gather.rs""# };
+    let expected = if independent { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/observed.rs" "$include/requirements.rs" "$include/gather.rs""# } else { r#"chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_operation.rlib" "$src/verified_download.rs" "$src/observed.rs" "$src/requirements.rs" "$src/gather.rs""# };
     command.to_string() == expected.to_string()
 }
 

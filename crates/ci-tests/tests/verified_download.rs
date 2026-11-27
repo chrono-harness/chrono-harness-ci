@@ -12,6 +12,53 @@ use vstd::prelude::*;
 #[cfg(verus_keep_ghost)]
 use vstd::vpanic as panic;
 
+verus! {
+
+#[cfg(verus_keep_ghost)]
+fn requirements_only_decode_complete_success<'a>(original: &'a str, exit: i32,
+    stdout: &'a [u8], stderr: &'a [u8], out_done: bool, err_done: bool)
+{
+    use policy::{capture_error, query_reply, Reply};
+    let failed = query_reply(capture_error(Some(original), out_done, err_done), exit, stdout, stderr);
+    assert(failed == Reply::Failed(original));
+    let captured = query_reply(capture_error(None, out_done, err_done), exit, stdout, stderr);
+    if !out_done || !err_done {
+        assert(captured is Failed && captured->Failed_0@ == "incomplete observed command streams"@);
+    } else if exit == 0 {
+        assert(captured == Reply::Output(stdout));
+    } else {
+        assert(captured == Reply::Exited(exit, stderr));
+    }
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn requirements_use_the_original_streams_after_successful_capture() {
+    use policy::{Reply, capture_error, query_reply};
+    let stdout = br#"{"required_units":[]}"#;
+    let stderr = b"original query error\n";
+    for complete in [(false, true), (true, false), (false, false)] {
+        let error = capture_error(None, complete.0, complete.1);
+        assert!(matches!(
+            query_reply(error, 0, stdout, stderr),
+            Reply::Failed("incomplete observed command streams")
+        ));
+        let original = capture_error(Some("request timed out"), complete.0, complete.1);
+        assert!(matches!(
+            query_reply(original, 0, stdout, stderr),
+            Reply::Failed("request timed out")
+        ));
+    }
+    let error = capture_error(None, true, true);
+    assert!(
+        matches!(query_reply(error, 0, stdout, stderr), Reply::Output(bytes) if bytes == stdout)
+    );
+    assert!(
+        matches!(query_reply(error, 2, stdout, stderr), Reply::Exited(2, bytes) if bytes == stderr)
+    );
+}
+
 // Cargo builds this same release obligation as an executable for the publishing workflow.
 mod release_observation {
     #[cfg(not(verus_keep_ghost))]
