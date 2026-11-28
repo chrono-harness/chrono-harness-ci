@@ -1,7 +1,8 @@
 //! 编译 planner 之前恢复下载资料；执行和传输仍由原生 cache action 负责。
+#[cfg(verus_keep_ghost)]
+use super as policy;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
-use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -23,10 +24,30 @@ pub fn download_domain(use_layout: bool, files: usize) -> (domain: DownloadDomai
     else { DownloadDomain::Invalid }
 }
 
-pub fn saves_download(producer: &str, job: &str) -> (save: bool)
-    ensures save == (producer@ == job@),
+pub fn saves_download(producer: Option<&str>, job: &str) -> (save: bool)
+    ensures save == policy::optional_text_is(producer, job),
 {
-    <&str>::exec_eq(producer, job)
+    policy::text_is(producer, job)
+}
+
+pub enum DownloadProjection {
+    Unchanged,
+    Reject,
+    Insert,
+}
+
+pub fn download_projection(selected: usize, checkouts: usize, steps: usize)
+    -> (projection: DownloadProjection)
+    ensures
+        (projection is Unchanged) == (selected == 0),
+        (projection is Reject) == (selected > 0 && (checkouts != 1 || steps != 1)),
+        (projection is Insert) == (selected > 0 && checkouts == 1 && steps == 1),
+{
+    if selected == 0 { DownloadProjection::Unchanged }
+    else if !policy::single_download_binding(checkouts)
+        || !policy::single_download_binding(steps)
+    { DownloadProjection::Reject }
+    else { DownloadProjection::Insert }
 }
 }
 
@@ -232,14 +253,23 @@ pub(crate) fn project(
         .iter()
         .filter(|(_, e)| e.consumers.iter().any(|s| s == job))
         .collect();
-    if selected.is_empty() {
-        return Ok(body);
-    }
     let steps = "    steps:\n";
-    if !policy::single_download_binding(body.matches(checkout_end).count())
-        || !policy::single_download_binding(body.matches(steps).count())
-    {
-        return Err("download cache projection requires one checkout and one steps section".into());
+    let (checkouts, sections) = if selected.is_empty() {
+        (0, 0)
+    } else {
+        (
+            body.matches(checkout_end).count(),
+            body.matches(steps).count(),
+        )
+    };
+    match download_projection(selected.len(), checkouts, sections) {
+        DownloadProjection::Unchanged => return Ok(body),
+        DownloadProjection::Reject => {
+            return Err(
+                "download cache projection requires one checkout and one steps section".into(),
+            );
+        }
+        DownloadProjection::Insert => {}
     }
     let mut environment = String::new();
     if !c.environment.is_empty() {
@@ -306,11 +336,7 @@ pub(crate) fn project(
             .map(|id| format!("            {}\n", prefix(c, id, &domain)))
             .unwrap_or_default();
         restore.push_str(&format!("      - name: Restore download cache {id}\n        id: chrono_download_{index}\n{restore_guard}        continue-on-error: true\n        uses: {}\n        with:\n          key: {}\n          path: |\n{paths}          restore-keys: |\n            {stem}\n{fallback}          fail-on-cache-miss: false\n", parent.restore_action, scalar(&key)));
-        if entry
-            .save_job
-            .as_deref()
-            .is_some_and(|writer| saves_download(writer, job))
-        {
+        if saves_download(entry.save_job.as_deref(), job) {
             save.push_str(&format!("      - name: Save download cache {id}\n        if: ${{{{ {event_guard}{save_status} && !cancelled() && steps.chrono_download_{index}.outcome == 'success' && steps.chrono_download_{index}.outputs.cache-hit != 'true' }}}}\n        continue-on-error: true\n        uses: {}\n        with:\n          key: {}\n          path: |\n{paths}", parent.save_action, scalar(&key)));
         }
     }

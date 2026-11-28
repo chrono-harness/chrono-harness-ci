@@ -28,7 +28,7 @@ pub mod gating;
 pub mod migrate;
 #[cfg(verus_keep_ghost)]
 #[path = "release.rs"]
-mod release_projection;
+pub mod release_projection;
 #[cfg(verus_keep_ghost)]
 #[path = "lib.rs"]
 pub mod single_projection;

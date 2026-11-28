@@ -271,6 +271,74 @@ fn download_layout_requires_one_lock_and_preserves_whole_file_domains() {
     assert(missing is Invalid && ambiguous is Invalid);
 }
 
+#[cfg(verus_keep_ghost)]
+fn selected_downloads_require_unique_anchors_and_only_the_declared_writer_saves(job: &str, other: &str)
+    requires job@ != other@,
+{
+    use policy::download_projection::{download_projection, saves_download};
+    let unselected = download_projection(0, 0, 2);
+    let duplicate_checkout = download_projection(1, 2, 1);
+    let missing_steps = download_projection(1, 1, 0);
+    let insert = download_projection(2, 1, 1);
+    let writer = saves_download(Some(job), job);
+    let reader = saves_download(Some(other), job);
+    let no_writer = saves_download(None, job);
+    assert(unselected is Unchanged && duplicate_checkout is Reject && missing_steps is Reject);
+    assert(insert is Insert && writer && !reader && !no_writer);
+}
+
+#[cfg(verus_keep_ghost)]
+fn native_status_keeps_selection_errors_before_job_results() {
+    use policy::gating::{detector_succeeded, unit_status};
+    proof {
+        reveal_strlit("true");
+        reveal_strlit("false");
+        reveal_strlit("skipped");
+        reveal_strlit("success");
+        reveal_strlit("failure");
+        assert("true"@ != "false"@) by {
+            assert("true"@[0] != "false"@[0]);
+        }
+        assert("success"@ != "skipped"@) by {
+            assert("success"@[1] != "skipped"@[1]);
+        }
+        assert("success"@ != "failure"@) by {
+            assert("success"@[0] != "failure"@[0]);
+        }
+        assert("skipped"@ != "failure"@) by {
+            assert("skipped"@[0] != "failure"@[0]);
+        }
+    }
+    let detector = detector_succeeded(Some("success"));
+    let absent_detector = detector_succeeded(None);
+    let contradiction = unit_status(true, Some("false"), None);
+    let missing = unit_status(true, Some("true"), None);
+    let required_skip = unit_status(true, Some("true"), Some("skipped"));
+    let optional_skip = unit_status(false, Some("false"), Some("skipped"));
+    let optional_failure = unit_status(false, Some("false"), Some("failure"));
+    let required_success = unit_status(true, Some("true"), Some("success"));
+    assert(detector && !absent_detector);
+    assert(contradiction is ContradictorySelection);
+    assert(missing is MissingResult);
+    assert(required_skip is RejectedResult);
+    assert(required_skip->RejectedResult_0@ == "skipped"@);
+    assert(optional_skip is Accepted);
+    assert(optional_failure is RejectedResult);
+    assert(required_success is Accepted);
+}
+
+#[cfg(verus_keep_ghost)]
+fn release_publisher_precedes_build_and_diagnostic_jobs_keep_their_gate() {
+    use policy::release_projection::promotion_job;
+    let off = promotion_job(false, true, true, false, true);
+    let publisher = promotion_job(true, true, true, false, true);
+    let build = promotion_job(true, false, true, false, true);
+    let dependent = promotion_job(true, false, false, false, true);
+    let diagnostics = promotion_job(true, false, false, true, true);
+    assert(off is Ordinary && publisher is Publisher && build is Build);
+    assert(dependent is RequirePublisherSuccess && diagnostics is Ordinary);
+}
+
 #[cfg_attr(not(verus_keep_ghost), test)]
 fn download_contracts_reject_each_missing_obligation() {
     let good = policy::valid_download_entry(1, 1, 1, 1, true, true, true, true);
@@ -551,6 +619,69 @@ fn aggregate_check_can_be_named_for_its_event() {
             format!("{} / {event}", config.collection.name);
         assert!(chrono_ci::units::validate(&collision).is_err());
     }
+}
+
+#[cfg(not(verus_keep_ghost))]
+#[test]
+fn aggregate_reads_detector_output_and_unit_results_in_order() {
+    use chrono_ci::gating::{Detection, validate_statuses};
+    use chrono_ci::units::Config;
+    use serde_json::json;
+
+    let config: Config =
+        serde_json::from_str(include_str!("../../../.chrono-harness/ci/units.json")).unwrap();
+    let mut detection: Detection = serde_json::from_value(json!({
+        "schema": "chrono-ci-detection/v1", "repository": "owner/repo", "run_id": 1,
+        "run_attempt": 1, "event": "push", "event_sha256": "", "workflow_source_revision": "",
+        "workflow_sha256": "", "provider_sha256": "", "check_config_sha256": "", "initial": false,
+        "base": "base", "candidate": "candidate", "event_head": "head", "source": "ci",
+        "changed_paths_count": 1, "required_units": ["ci"], "selection_sha256": "",
+    }))
+    .unwrap();
+    let mut needs = json!({ "detect": { "result": "failure", "outputs": {} } });
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "change detection did not succeed"
+    );
+    needs["detect"]["result"] = json!("success");
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "detector outputs missing"
+    );
+    needs["detect"]["outputs"]["detection"] = json!("{}");
+    assert!(validate_statuses(&config, &detection, &needs).is_err());
+    needs["detect"]["outputs"]["detection"] = json!(serde_json::to_string(&detection).unwrap());
+    needs["detect"]["outputs"]["unit_ci"] = json!(true);
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "detector output missing/contradictory for ci"
+    );
+    needs["detect"]["outputs"]["unit_ci"] = json!("true");
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "unit ci job result missing"
+    );
+    needs["unit_ci"] = json!({ "result": "skipped" });
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "unit ci: required=true, native_result=skipped"
+    );
+    needs["unit_ci"]["result"] = json!("success");
+    assert!(validate_statuses(&config, &detection, &needs).is_ok());
+    detection.required_units.clear();
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "aggregate detector outputs disagree with fixed detection"
+    );
+    needs["detect"]["outputs"]["detection"] = json!(serde_json::to_string(&detection).unwrap());
+    needs["detect"]["outputs"]["unit_ci"] = json!("false");
+    needs["unit_ci"]["result"] = json!("skipped");
+    assert!(validate_statuses(&config, &detection, &needs).is_ok());
+    needs["unit_ci"]["result"] = json!("failure");
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "unit ci: required=false, native_result=failure"
+    );
 }
 
 #[cfg(not(verus_keep_ghost))]
