@@ -6,10 +6,23 @@ use verus_builtin_macros::verus;
 use vstd::prelude::*;
 
 verus! {
-pub fn listing_status(passed: bool) -> (status: &'static str)
-    ensures status@ == if passed { "passed"@ } else { "failed"@ },
+pub fn listing_status<S, E>(listing: &Result<S, E>) -> (status: &'static str)
+    ensures status@ == if listing.is_ok() { "passed"@ } else { "failed"@ },
 {
-    if passed { "passed" } else { "failed" }
+    if listing.is_ok() { "passed" } else { "failed" }
+}
+
+pub fn inventory_summary<S, E, P>(listing: Result<S, E>, publication: Result<(), P>)
+    -> (result: Result<Result<S, E>, (Result<S, E>, P)>)
+    ensures result == match publication {
+        Ok(()) => Ok(listing),
+        Err(error) => Err((listing, error)),
+    },
+{
+    match publication {
+        Ok(()) => Ok(listing),
+        Err(error) => Err((listing, error)),
+    }
 }
 }
 
@@ -339,7 +352,7 @@ pub fn execute(root: &Path, path: &str) -> Result<String, String> {
     if inventory.published {
         let directory = &inventory.config.report_directory;
         let outcome = json!({"kind":"test-inventory","project":inventory.config.project,
-            "status":listing_status(result.is_ok())});
+            "status":listing_status(&result)});
         let seal = inventory
             .storage
             .publication::<()>(
@@ -350,12 +363,10 @@ pub fn execute(root: &Path, path: &str) -> Result<String, String> {
                     .storage
                     .publication::<()>(json!({"kind":"retain-diagnostic","path":directory}))
             });
-        if let Err(error) = seal {
-            let listing = result.err().map(|e| format!("{e}; ")).unwrap_or_default();
-            return Err(format!(
-                "{listing}inventory publication: {error}; report_directory={directory}"
-            ));
-        }
+        result = inventory_summary(result, seal).map_err(|(listing, error)| {
+            let listing = listing.err().map(|e| format!("{e}; ")).unwrap_or_default();
+            format!("{listing}inventory publication: {error}; report_directory={directory}")
+        })?;
         let summary = result
             .as_mut()
             .map_err(|error| format!("{error}; report_directory={directory}"))?;

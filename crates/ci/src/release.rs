@@ -11,6 +11,28 @@ pub fn publisher_success_gate(explicit_always: bool, needs_publisher: bool) -> (
 {
     !explicit_always && needs_publisher
 }
+
+pub enum PromotionJob {
+    Publisher,
+    Build,
+    RequirePublisherSuccess,
+    Ordinary,
+}
+
+pub fn promotion_job(enabled: bool, publisher: bool, build: bool, always: bool, needs_publisher: bool)
+    -> (job: PromotionJob)
+    ensures
+        (job is Publisher) == (enabled && publisher),
+        (job is Build) == (enabled && !publisher && build),
+        (job is RequirePublisherSuccess) == (enabled && !publisher && !build && !always && needs_publisher),
+        (job is Ordinary) == (!enabled || (!publisher && !build && (always || !needs_publisher))),
+{
+    if !enabled { PromotionJob::Ordinary }
+    else if publisher { PromotionJob::Publisher }
+    else if build { PromotionJob::Build }
+    else if publisher_success_gate(always, needs_publisher) { PromotionJob::RequirePublisherSuccess }
+    else { PromotionJob::Ordinary }
+}
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -666,8 +688,14 @@ fn render_unit<'a>(
         condition.push_str(" && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))");
     }
     if let Some(delivery) = &c.delivery {
-        if !delivery.promotion_build_jobs.is_empty() {
-            if job.id == delivery.publisher {
+        match promotion_job(
+            !delivery.promotion_build_jobs.is_empty(),
+            job.id == delivery.publisher,
+            business,
+            job.always,
+            job.needs.contains(&delivery.publisher),
+        ) {
+            PromotionJob::Publisher => {
                 // stable 的包来自显式原运行；其余渠道仍要求当前依赖成功。
                 let qualified = if components.is_some() {
                     job.needs
@@ -681,9 +709,11 @@ fn render_unit<'a>(
                 condition = format!(
                     "always() && (inputs.channel == 'stable' || {qualified}) && {condition}"
                 );
-            } else if delivery.promotion_build_jobs.contains(&job.id) {
+            }
+            PromotionJob::Build => {
                 condition.push_str(" && inputs.channel != 'stable'");
-            } else if publisher_success_gate(job.always, job.needs.contains(&delivery.publisher)) {
+            }
+            PromotionJob::RequirePublisherSuccess => {
                 // 正式晋升跳过构建祖先；普通消费者只核显式直接依赖。
                 let dependencies = job
                     .needs
@@ -693,6 +723,7 @@ fn render_unit<'a>(
                     .join(" && ");
                 condition = format!("always() && {dependencies} && {condition}");
             }
+            PromotionJob::Ordinary => {}
         }
     }
     let landing_selection = c

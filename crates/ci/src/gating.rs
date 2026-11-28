@@ -1,11 +1,58 @@
 //! Single-parent GitHub scheduling. The adjudicator owns DELTA obligations;
 //! this provider owns their projection and native job/run transport predicate.
+#[cfg(verus_keep_ghost)]
+use super as policy;
+#[cfg(not(verus_keep_ghost))]
+use crate::verified_literals as policy;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {
+
+pub fn detector_succeeded(result: Option<&str>) -> (succeeded: bool)
+    ensures succeeded == policy::optional_text_is(result, "success"),
+{
+    policy::text_is(result, "success")
+}
+
+pub enum UnitStatus<'a> {
+    ContradictorySelection,
+    MissingResult,
+    RejectedResult(&'a str),
+    Accepted,
+}
+
+pub fn unit_status<'a>(required: bool, selection: Option<&str>, result: Option<&'a str>)
+    -> (status: UnitStatus<'a>)
+    ensures ({
+        let selected = policy::optional_text_is(selection, if required { "true" } else { "false" });
+        let success = policy::optional_text_is(result, "success");
+        let skipped = policy::optional_text_is(result, "skipped");
+        &&& (status is ContradictorySelection) == !selected
+        &&& (status is MissingResult) == (selected && result.is_none())
+        &&& (status is RejectedResult) == (selected && result.is_some()
+            && !(success || (!required && skipped)))
+        &&& (status is RejectedResult) ==> result == Some(status->RejectedResult_0)
+        &&& (status is Accepted) == (selected && (success || (!required && skipped)))
+    }),
+{
+    if !policy::text_is(selection, if required { "true" } else { "false" }) {
+        UnitStatus::ContradictorySelection
+    } else {
+        match result {
+            None => UnitStatus::MissingResult,
+            Some(value) => {
+                if detector_succeeded(result) || (!required && policy::text_is(result, "skipped")) {
+                    UnitStatus::Accepted
+                } else {
+                    UnitStatus::RejectedResult(value)
+                }
+            }
+        }
+    }
+}
 
 /// 这项期限属于单元生产者。汇总有独立的证据保存合同。
 pub fn unit_evidence_retention(days: Option<u16>, is_unit: bool) -> (retention: Option<u16>)
@@ -761,7 +808,7 @@ pub(crate) fn native_run(unit: Option<&str>) -> Result<NativeRun, String> {
 /// Native status is a necessary transport gate. The final check still judges originals.
 #[cfg(not(verus_keep_ghost))]
 pub fn validate_statuses(c: &units::Config, d: &Detection, needs: &Value) -> Result<(), String> {
-    if needs["detect"]["result"] != "success" {
+    if !detector_succeeded(needs["detect"]["result"].as_str()) {
         return Err("change detection did not succeed".into());
     }
     let observed: Detection = decode(
@@ -775,20 +822,24 @@ pub fn validate_statuses(c: &units::Config, d: &Detection, needs: &Value) -> Res
     }
     for unit in c.units.keys() {
         let required = d.required_units.contains(unit);
-        let output = if required { "true" } else { "false" };
         let job = job_id(unit);
-        if needs["detect"]["outputs"][&job] != output {
-            return Err(format!("detector output missing/contradictory for {unit}"));
-        }
-        let result = needs[&job]["result"]
-            .as_str()
-            .ok_or_else(|| format!("unit {unit} job result missing"))?;
-        if (required && result != "success")
-            || (!required && !matches!(result, "skipped" | "success"))
-        {
-            return Err(format!(
-                "unit {unit}: required={required}, native_result={result}"
-            ));
+        match unit_status(
+            required,
+            needs["detect"]["outputs"][&job].as_str(),
+            needs[&job]["result"].as_str(),
+        ) {
+            UnitStatus::ContradictorySelection => {
+                return Err(format!("detector output missing/contradictory for {unit}"));
+            }
+            UnitStatus::MissingResult => {
+                return Err(format!("unit {unit} job result missing"));
+            }
+            UnitStatus::RejectedResult(result) => {
+                return Err(format!(
+                    "unit {unit}: required={required}, native_result={result}"
+                ));
+            }
+            UnitStatus::Accepted => {}
         }
     }
     Ok(())

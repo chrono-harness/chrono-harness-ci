@@ -12,6 +12,17 @@ pub fn valid_cache_sources(builds: usize, program: bool, config: bool, direct_re
     if builds == 0 { !program && !config && direct_registry }
     else { program && config && !direct_registry }
 }
+
+pub fn claim_cache_writer<'a>(
+    writers: &mut std::collections::BTreeMap<&'a str, &'a str>, cache: &'a str, job: &'a str,
+) -> (prior: Option<&'a str>)
+    requires vstd::laws_cmp::obeys_cmp::<&'a str>(),
+    ensures
+        prior == if old(writers)@.contains_key(cache) { Some(old(writers)@[cache]) } else { None },
+        writers@ == old(writers)@.insert(cache, job),
+{
+    writers.insert(cache, job)
+}
 }
 
 #[cfg(not(verus_keep_ghost))]
@@ -120,7 +131,7 @@ pub(crate) fn validate(c: &Config, jobs: &BTreeSet<String>) -> Result<(), String
             return Err(format!("invalid persistent cache consumer for job {job}"));
         }
         for cache in saves {
-            if let Some(previous) = saving_jobs.insert(cache, job) {
+            if let Some(previous) = claim_cache_writer(&mut saving_jobs, cache, job) {
                 return Err(format!(
                     "E_CACHE_SAVE_OWNERSHIP: cache {cache} has multiple saving jobs: {previous}, {job}; select one writer with save_caches"
                 ));
