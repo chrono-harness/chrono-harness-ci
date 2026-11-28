@@ -1,14 +1,70 @@
 //! Owned GitHub Actions projection and event input preparation; no judgment or test discovery.
+#[cfg(verus_keep_ghost)]
+use super::{cache_action, observed_field_equal};
+#[cfg(not(verus_keep_ghost))]
+use verified_literals::observed_field_equal;
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
 
 verus! {
 pub fn single_check_cache(build_consumers: usize) -> (supported: bool)
     ensures supported == (build_consumers == 0),
 {
     build_consumers == 0
+}
+
+pub fn workflow_size_allowed(path: &str, bytes: usize) -> (allowed: bool)
+    ensures allowed == (bytes <= 500_000 ||
+        !cache_action::path_part(path.spec_bytes(), 0, ".github/workflows/".spec_bytes())),
+{
+    bytes <= 500_000 || !cache_action::has_part(path.as_bytes(), 0, ".github/workflows/".as_bytes())
+}
+
+pub enum OutputError { InvalidUtf8, Collision }
+
+// The adapter distinguishes a missing file from all other I/O failures and decodes UTF-8.
+pub fn loaded_output(current: Result<Option<&str>, ()>, expected: &str, marker: &str)
+    -> (matched: Result<bool, OutputError>)
+    ensures match current {
+        Err(()) => matched matches Err(OutputError::InvalidUtf8),
+        Ok(None) => matched == Ok::<bool, OutputError>(false),
+        Ok(Some(text)) => {
+            if cache_action::path_part(text.spec_bytes(), 0, marker.spec_bytes()) {
+                matched == Ok::<bool, OutputError>(text.spec_bytes() == expected.spec_bytes())
+            } else {
+                matched matches Err(OutputError::Collision)
+            }
+        },
+    },
+{
+    match current {
+        Err(()) => Err(OutputError::InvalidUtf8),
+        Ok(None) => Ok(false),
+        Ok(Some(text)) => {
+            if !cache_action::has_part(text.as_bytes(), 0, marker.as_bytes()) {
+                return Err(OutputError::Collision);
+            }
+            Ok(observed_field_equal(Some(text.as_bytes()), Some(expected.as_bytes())))
+        },
+    }
+}
+
+pub enum OutputChange { Keep, Drift, Write }
+
+pub fn output_change(matches: bool, verify: bool) -> (change: OutputChange)
+    ensures match change {
+        OutputChange::Keep => matches,
+        OutputChange::Drift => !matches && verify,
+        OutputChange::Write => !matches && !verify,
+    },
+{
+    if matches { OutputChange::Keep }
+    else if verify { OutputChange::Drift }
+    else { OutputChange::Write }
 }
 }
 
@@ -528,23 +584,30 @@ fn render_job(
 }
 #[cfg(not(verus_keep_ghost))]
 fn output_preflight(root: &Path, path: &str, expected: &str, marker: &str) -> Result<bool, String> {
-    if path.starts_with(".github/workflows/") && expected.len() > 500_000 {
+    if !workflow_size_allowed(path, expected.len()) {
         return Err(format!(
             "GitHub workflow exceeds 500 KB: {path} ({} bytes); split the registered workflow",
             expected.len()
         ));
     }
     let target = no_symlink_parents(root, path)?;
-    match fs::read(&target) {
-        Ok(bytes) => {
-            let text = std::str::from_utf8(&bytes).map_err(|_| "owned output is not UTF-8")?;
-            if !text.starts_with(marker) {
-                return Err(format!("unowned workflow collision: {path}"));
-            }
-            Ok(text == expected)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(e.to_string()),
+    let bytes = match fs::read(target) {
+        Ok(bytes) => Some(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e.to_string()),
+    };
+    match loaded_output(
+        bytes
+            .as_deref()
+            .map(std::str::from_utf8)
+            .transpose()
+            .map_err(|_| ()),
+        expected,
+        marker,
+    ) {
+        Ok(same) => Ok(same),
+        Err(OutputError::InvalidUtf8) => Err("owned output is not UTF-8".into()),
+        Err(OutputError::Collision) => Err(format!("unowned workflow collision: {path}")),
     }
 }
 #[cfg(not(verus_keep_ghost))]
@@ -621,7 +684,8 @@ pub fn generate(root: &Path, config_path: &str, verify: bool) -> Result<bool, St
         Some((path, bytes)) => inventory_preflight(root, path, bytes, false)?,
         None => true,
     };
-    if verify && !same {
+    let workflow_change = output_change(same, verify);
+    if matches!(workflow_change, OutputChange::Drift) {
         return Err(format!("generated workflow drift: {}", c.workflow_path));
     }
     if verify && !initial_same {
@@ -634,7 +698,7 @@ pub fn generate(root: &Path, config_path: &str, verify: bool) -> Result<bool, St
         let (path, bytes) = initial.as_ref().unwrap();
         write_file(root, path, bytes)?;
     }
-    if !verify && !same {
+    if matches!(workflow_change, OutputChange::Write) {
         write_file(root, &c.workflow_path, rendered.as_bytes())?
     }
     Ok(!same || !initial_same)

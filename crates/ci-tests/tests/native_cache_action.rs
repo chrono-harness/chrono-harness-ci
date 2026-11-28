@@ -59,6 +59,19 @@ fn native_host_command_has_one_writer_and_verify_preserves_drift() {
     let positions = sequence.map(|needle| text.find(needle).unwrap());
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
     assert_eq!(text.matches("'./native.sh' 'two words'").count(), 1);
+    for (bad_bytes, error) in [
+        (b"\xff# host edit\n".as_slice(), "owned output is not UTF-8"),
+        (
+            b"# host edit\n".as_slice(),
+            "unowned workflow collision: .github/actions/build/action.yml",
+        ),
+    ] {
+        fs::write(dir.join(output), bad_bytes).unwrap();
+        for verify in [true, false] {
+            assert_eq!(chrono_ci::generate(dir, CONFIG, verify).unwrap_err(), error);
+            assert_eq!(fs::read(dir.join(output)).unwrap(), bad_bytes);
+        }
+    }
     let drift = format!("{text}# host edit\n");
     write(dir, output, &drift);
     assert!(
@@ -67,6 +80,17 @@ fn native_host_command_has_one_writer_and_verify_preserves_drift() {
             .contains("drift")
     );
     assert_eq!(fs::read_to_string(dir.join(output)).unwrap(), drift);
+    fs::remove_file(dir.join(output)).unwrap();
+    assert_eq!(
+        chrono_ci::generate(dir, CONFIG, true).unwrap_err(),
+        "generated native cache action drift: .github/actions/build/action.yml",
+    );
+    assert!(!dir.join(output).exists());
+    assert!(chrono_ci::generate(dir, CONFIG, false).unwrap());
+    assert_eq!(fs::read_to_string(dir.join(output)).unwrap(), text);
+    for _ in 0..2 {
+        assert!(!chrono_ci::generate(dir, CONFIG, true).unwrap());
+    }
 }
 
 #[test]

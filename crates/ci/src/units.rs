@@ -521,11 +521,11 @@ fn projection_changes(
     let outputs = render_from(c, path, read)?;
     let mut writes = vec![];
     for (path, bytes) in &outputs {
-        if !output_preflight(root, path, bytes, super::gating::MARKER)? {
-            if verify {
-                return Err(format!("generated unit workflow drift: {path}"));
-            }
-            writes.push((path.clone(), bytes.clone()));
+        let same = output_preflight(root, path, bytes, super::gating::MARKER)?;
+        match output_change(same, verify) {
+            OutputChange::Keep => {}
+            OutputChange::Drift => return Err(format!("generated unit workflow drift: {path}")),
+            OutputChange::Write => writes.push((path.clone(), bytes.clone())),
         }
     }
     Ok(writes)

@@ -13,7 +13,7 @@ pub open spec fn path_part(path: Seq<u8>, offset: int, part: Seq<u8>) -> bool {
         && forall|i: int| 0 <= i < part.len() ==> path[offset+i] == part[i]
 }
 
-fn has_part(path: &[u8], offset: usize, part: &[u8]) -> (valid: bool)
+pub(crate) fn has_part(path: &[u8], offset: usize, part: &[u8]) -> (valid: bool)
     ensures valid == path_part(path@, offset as int, part@),
 {
     if offset > path.len() || part.len() > path.len() - offset { return false; }
@@ -85,7 +85,10 @@ pub fn output_path(path: &[u8], first_writer: bool) -> (valid: bool)
 }
 
 #[cfg(not(verus_keep_ghost))]
-use crate::{cache, files::relative_path, output_preflight, verified_literals, write_file};
+use crate::{
+    OutputChange, cache, files::relative_path, output_change, output_preflight, verified_literals,
+    write_file,
+};
 #[cfg(not(verus_keep_ghost))]
 use serde::Deserialize;
 #[cfg(not(verus_keep_ghost))]
@@ -196,11 +199,12 @@ pub(crate) fn generate(
         let action = format!(
             "{MARKER}name: {name}\ndescription: {desc}\nruns:\n  using: composite\n  steps:\n{steps}"
         );
-        if !output_preflight(root, path, &action, MARKER)? {
-            if verify {
+        match output_change(output_preflight(root, path, &action, MARKER)?, verify) {
+            OutputChange::Keep => {}
+            OutputChange::Drift => {
                 return Err(format!("generated native cache action drift: {path}"));
             }
-            changed.push((path, action));
+            OutputChange::Write => changed.push((path, action)),
         }
     }
     for (path, action) in &changed {
