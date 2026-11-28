@@ -1,10 +1,110 @@
 //! GitHub transports fixed unit artifacts; the scoped judge decides their acceptance.
 #[cfg(not(verus_keep_ghost))]
 use verus_builtin_macros::verus;
+use vstd::contrib::exec_spec::ExecSpecEq;
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
 verus! {
+#[derive(Debug, PartialEq, Eq)]
+pub enum LatestAttempt {
+    Missing,
+    Ambiguous,
+    Selected(usize),
+}
+
+/// GitHub job pages may contain earlier executions and carry successful jobs forward.
+pub fn latest_attempt(attempts: &[Option<u64>]) -> (result: LatestAttempt)
+    ensures
+        match result {
+            LatestAttempt::Missing =>
+                forall|i: int| 0 <= i < attempts.len() ==> attempts@[i] is None,
+            LatestAttempt::Ambiguous =>
+                exists|i: int, j: int| 0 <= i < attempts.len() && 0 <= j < attempts.len()
+                    && i != j && attempts@[i] is Some && attempts@[j] == attempts@[i]
+                    && forall|k: int| 0 <= k < attempts.len() && attempts@[k] is Some
+                        ==> attempts@[k].unwrap() <= attempts@[i].unwrap(),
+            LatestAttempt::Selected(i) =>
+                i < attempts.len() && attempts@[i as int] is Some
+                    && forall|j: int| 0 <= j < attempts.len() && j != i && attempts@[j] is Some
+                        ==> attempts@[j].unwrap() < attempts@[i as int].unwrap(),
+        },
+{
+    let mut latest: Option<(usize, u64)> = None;
+    let mut tied = false;
+    let mut i = 0;
+    while i < attempts.len()
+        invariant
+            i <= attempts.len(),
+            match latest {
+                None => forall|j: int| 0 <= j < i ==> attempts@[j] is None,
+                Some((index, value)) =>
+                    index < i && attempts@[index as int] == Some(value)
+                    && (forall|j: int| 0 <= j < i && attempts@[j] is Some
+                        ==> attempts@[j].unwrap() <= value)
+                    && (tied <==> exists|j: int| 0 <= j < i && j != index
+                        && attempts@[j] == Some(value)),
+            },
+        decreases attempts.len() - i,
+    {
+        if let Some(attempt) = attempts[i] {
+            match latest {
+                Some((_, value)) if attempt <= value => {
+                    tied = tied || attempt == value;
+                }
+                _ => {
+                    latest = Some((i, attempt));
+                    tied = false;
+                }
+            }
+        }
+        i += 1;
+    }
+    match latest {
+        None => LatestAttempt::Missing,
+        Some((index, value)) => {
+            if tied {
+                assert(exists|j: int| 0 <= j < attempts.len() && j != index
+                    && attempts@[j] == Some(value));
+                LatestAttempt::Ambiguous
+            } else {
+                LatestAttempt::Selected(index)
+            }
+        }
+    }
+}
+
+pub fn execution_identity(
+    observed_run: Option<u64>, run: u64, observed_head: Option<&str>, head: &str,
+    id: Option<u64>, attempt: Option<u64>, earliest: u64, parent: u64,
+) -> (valid: bool)
+    ensures valid == (observed_run == Some(run) && observed_head is Some
+        && observed_head.unwrap()@ == head@ && id is Some && id.unwrap() > 0
+        && attempt is Some && earliest <= attempt.unwrap() <= parent),
+{
+    if let (Some(r), Some(h), Some(id), Some(attempt)) = (observed_run, observed_head, id, attempt) {
+        r == run && <&str>::exec_eq(h, head) && id > 0 && earliest <= attempt && attempt <= parent
+    } else {
+        false
+    }
+}
+
+/// The producer may be older than the listed job, within the selected detector's history.
+pub fn original_attempt(detector: u64, producer: u64, execution: u64) -> (valid: bool)
+    ensures valid == (detector <= producer <= execution),
+{
+    detector <= producer && producer <= execution
+}
+
+pub fn original_field(observed: Option<&str>, expected: &str) -> (matches: bool)
+    ensures matches == (observed is Some && observed.unwrap()@ == expected@),
+{
+    match observed {
+        Some(value) => <&str>::exec_eq(value, expected),
+        None => false,
+    }
+}
+
 pub struct AcquisitionBudget<D> {
     pub deadline: D,
     pub stdout_remaining: usize,
@@ -400,24 +500,32 @@ fn validate_detector_jobs(
         .iter()
         .filter(|j| j["name"] == "Detect registered DELTA")
         .collect();
-    let latest = detector
-        .iter()
-        .filter_map(|j| j["run_attempt"].as_u64())
-        .max()
-        .ok_or("detector API execution missing")?;
-    let latest_jobs: Vec<_> = detector
-        .iter()
-        .filter(|j| j["run_attempt"] == latest)
-        .collect();
-    if latest_jobs.len() != 1
-        || latest < d.run_attempt
-        || latest > parent_attempt
-        || latest_jobs[0]["run_id"] != d.run_id
-        || latest_jobs[0]["head_sha"] != d.event_head
-        || latest_jobs[0]["id"].as_u64().is_none_or(|id| id == 0)
-        || latest_jobs[0]["status"] != "completed"
-        || latest_jobs[0]["conclusion"] != "success"
-    {
+    let attempts: Vec<_> = detector.iter().map(|j| j["run_attempt"].as_u64()).collect();
+    let latest = match latest_attempt(&attempts) {
+        LatestAttempt::Missing => return Err("detector API execution missing".into()),
+        LatestAttempt::Ambiguous => {
+            return Err("latest detector execution did not uniquely succeed".into());
+        }
+        LatestAttempt::Selected(index) => detector[index],
+    };
+    if !execution_identity(
+        latest["run_id"].as_u64(),
+        d.run_id,
+        latest["head_sha"].as_str(),
+        &d.event_head,
+        latest["id"].as_u64(),
+        latest["run_attempt"].as_u64(),
+        d.run_attempt,
+        parent_attempt,
+    ) || !matches!(
+        crate::verified_literals::native_job_state(
+            latest["status"].as_str(),
+            latest["conclusion"].as_str(),
+            None,
+            None,
+        ),
+        crate::verified_literals::NativeJobState::Succeeded
+    ) {
         return Err("latest detector execution did not uniquely succeed".into());
     }
     Ok(())
@@ -497,31 +605,36 @@ fn parent_units(
             .iter()
             .filter(|job| job["name"] == workflow.name)
             .collect();
-        if relevant.iter().any(|job| {
-            job["run_id"] != d.run_id
-                || job["head_sha"] != d.event_head
-                || job["run_attempt"]
-                    .as_u64()
-                    .is_none_or(|a| a == 0 || a > native.run_attempt)
-                || job["id"].as_u64().is_none_or(|id| id == 0)
-        }) {
-            return Err(format!("unit {unit} job run/attempt identity malformed"));
+        let mut attempts = Vec::with_capacity(relevant.len());
+        for job in &relevant {
+            let attempt = job["run_attempt"].as_u64();
+            if !execution_identity(
+                job["run_id"].as_u64(),
+                d.run_id,
+                job["head_sha"].as_str(),
+                &d.event_head,
+                job["id"].as_u64(),
+                attempt,
+                1,
+                native.run_attempt,
+            ) {
+                return Err(format!("unit {unit} job run/attempt identity malformed"));
+            }
+            attempts.push(attempt);
         }
-        let latest_attempt = relevant
-            .iter()
-            .filter_map(|j| j["run_attempt"].as_u64())
-            .max()
-            .ok_or_else(|| format!("unit {unit} job missing in parent history"))?;
-        let latest: Vec<_> = relevant
-            .into_iter()
-            .filter(|j| j["run_attempt"] == latest_attempt)
-            .collect();
-        if latest.len() != 1 {
-            return Err(format!(
-                "unit {unit} latest native execution did not uniquely succeed"
-            ));
-        }
-        let latest = super::gating::completed_native_job(latest[0], |id| {
+        let index = match latest_attempt(&attempts) {
+            LatestAttempt::Missing => {
+                return Err(format!("unit {unit} job missing in parent history"));
+            }
+            LatestAttempt::Ambiguous => {
+                return Err(format!(
+                    "unit {unit} latest native execution did not uniquely succeed"
+                ));
+            }
+            LatestAttempt::Selected(index) => index,
+        };
+        let latest_attempt = attempts[index].ok_or("selected native job attempt missing")?;
+        let latest = super::gating::completed_native_job(relevant[index], |id| {
             transport.api(&format!("repos/{repository}/actions/jobs/{id}"), false)
         })
         .map_err(|error| format!("unit {unit} {error}"))?;
@@ -538,9 +651,11 @@ fn parent_units(
             || p.repository != repository
             || p.run_id != d.run_id
             || p.job != super::gating::job_id(unit)
-            || p.run_attempt < d.run_attempt
-            || p.run_attempt > latest_attempt
-            || production.artifact != format!("chrono-unit-{unit}-{}-{}", p.run_id, p.run_attempt)
+            || !original_attempt(d.run_attempt, p.run_attempt, latest_attempt)
+            || !original_field(
+                Some(&production.artifact),
+                &format!("chrono-unit-{unit}-{}-{}", p.run_id, p.run_attempt),
+            )
             || !crate::codec::is_digest(&production.context_sha256)
             || !crate::codec::is_digest(&production.report_sha256)
         {
@@ -667,15 +782,17 @@ fn inner(
             relative_path(relative)?;
             Ok(format!("{destination}/{relative}"))
         };
-        if run["production"]["context_sha256"]
-            != file_identity(&no_symlink_parents(root, &downloaded(&w.context_path)?)?)?.0
-            || run["production"]["report_sha256"]
-                != file_identity(&no_symlink_parents(
-                    root,
-                    &downloaded(&registered[&unit].report_path)?,
-                )?)?
-                .0
-        {
+        if !original_field(
+            run["production"]["context_sha256"].as_str(),
+            &file_identity(&no_symlink_parents(root, &downloaded(&w.context_path)?)?)?.0,
+        ) || !original_field(
+            run["production"]["report_sha256"].as_str(),
+            &file_identity(&no_symlink_parents(
+                root,
+                &downloaded(&registered[&unit].report_path)?,
+            )?)?
+            .0,
+        ) {
             return Err(format!(
                 "unit {unit} artifact differs from original production output"
             ));
