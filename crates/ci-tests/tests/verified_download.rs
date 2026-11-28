@@ -250,6 +250,53 @@ fn runtime_retry_expectation_keeps_its_failure_branch() {
 }
 
 #[cfg_attr(not(verus_keep_ghost), test)]
+fn job_history_chooses_only_the_unique_latest_attempt() {
+    use policy::{LatestAttempt, latest_attempt};
+
+    let attempts: &[Option<u64>] = &[Some(2), None, Some(1), Some(2), Some(3)];
+    let latest = latest_attempt(attempts);
+    let ambiguous = latest_attempt(&[Some(2), Some(1), Some(2)]);
+    let missing = latest_attempt(&[None, None]);
+    expect_true(matches!(latest, LatestAttempt::Selected(4)));
+    expect_true(matches!(ambiguous, LatestAttempt::Ambiguous));
+    expect_true(matches!(missing, LatestAttempt::Missing));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn receipt_attempt_may_be_carried_but_stays_inside_the_selected_history() {
+    use policy::{execution_identity, original_attempt, original_field};
+
+    proof {
+        reveal_strlit("a");
+        reveal_strlit("b");
+        reveal_strlit("chrono-unit-harness-9-2");
+        reveal_strlit("chrono-unit-harness-9-3");
+        assert("a"@ != "b"@) by { assert("a"@[0] != "b"@[0]); }
+        assert("chrono-unit-harness-9-2"@ != "chrono-unit-harness-9-3"@) by {
+            assert("chrono-unit-harness-9-2"@[22] != "chrono-unit-harness-9-3"@[22]);
+        }
+    }
+    let latest = execution_identity(Some(9), 9, Some("a"), "a", Some(8), Some(3), 1, 3);
+    let zero = execution_identity(Some(9), 9, Some("a"), "a", Some(8), Some(0), 1, 3);
+    let future = execution_identity(Some(9), 9, Some("a"), "a", Some(8), Some(4), 1, 3);
+    let wrong_run = execution_identity(Some(8), 9, Some("a"), "a", Some(8), Some(3), 1, 3);
+    let no_job = execution_identity(Some(9), 9, Some("a"), "a", None, Some(3), 1, 3);
+    let wrong_head = execution_identity(Some(9), 9, Some("b"), "a", Some(8), Some(3), 1, 3);
+    expect_true(latest && !zero && !future && !wrong_run && !no_job && !wrong_head);
+
+    let carried = original_attempt(1, 2, 3);
+    let rerun = original_attempt(1, 3, 3);
+    let stale = original_attempt(2, 1, 3);
+    let later = original_attempt(1, 4, 3);
+    expect_true(carried && rerun && !stale && !later);
+
+    let matching = original_field(Some("chrono-unit-harness-9-2"), "chrono-unit-harness-9-2");
+    let different = original_field(Some("chrono-unit-harness-9-3"), "chrono-unit-harness-9-2");
+    let absent = original_field(None, "chrono-unit-harness-9-2");
+    expect_true(matching && !different && !absent);
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
 fn only_complete_ascii_status_tokens_are_accepted() {
     expect(&[], None);
     expect(&[72u8, 84, 84, 80, 32, 53, 48, 51], None);

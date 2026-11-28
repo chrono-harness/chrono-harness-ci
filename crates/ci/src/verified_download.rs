@@ -27,9 +27,15 @@ pub use crate::{
 #[path = "gather.rs"]
 mod gather;
 #[cfg(verus_keep_ghost)]
-pub use self::gather::{AcquisitionBudget, available_time, transport_limits};
+pub use self::gather::{
+    AcquisitionBudget, LatestAttempt, available_time, execution_identity, latest_attempt,
+    original_attempt, original_field, transport_limits,
+};
 #[cfg(not(verus_keep_ghost))]
-pub use crate::gather::{AcquisitionBudget, available_time, transport_limits};
+pub use crate::gather::{
+    AcquisitionBudget, LatestAttempt, available_time, execution_identity, latest_attempt,
+    original_attempt, original_field, transport_limits,
+};
 
 verus! {
 

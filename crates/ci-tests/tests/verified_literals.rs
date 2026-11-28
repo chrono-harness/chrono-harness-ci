@@ -666,6 +666,11 @@ fn aggregate_reads_detector_output_and_unit_results_in_order() {
         validate_statuses(&config, &detection, &needs).unwrap_err(),
         "unit ci: required=true, native_result=skipped"
     );
+    needs["unit_ci"]["result"] = json!("cancelled");
+    assert_eq!(
+        validate_statuses(&config, &detection, &needs).unwrap_err(),
+        "unit ci: required=true, native_result=cancelled"
+    );
     needs["unit_ci"]["result"] = json!("success");
     assert!(validate_statuses(&config, &detection, &needs).is_ok());
     detection.required_units.clear();
