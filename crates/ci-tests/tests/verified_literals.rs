@@ -1,4 +1,7 @@
 #[cfg(verus_keep_ghost)]
+mod native_cache_action;
+
+#[cfg(verus_keep_ghost)]
 #[path = "actions_lock.rs"]
 mod lock_expectations;
 

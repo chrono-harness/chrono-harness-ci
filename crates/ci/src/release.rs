@@ -36,7 +36,7 @@ pub fn promotion_job(enabled: bool, publisher: bool, build: bool, always: bool, 
 }
 
 #[cfg(not(verus_keep_ghost))]
-use super::{action, output_preflight, scalar, shell, write_file};
+use super::{OutputChange, action, output_change, output_preflight, scalar, shell, write_file};
 #[cfg(not(verus_keep_ghost))]
 use crate::{
     codec::decode,
@@ -930,16 +930,17 @@ pub(crate) fn generate(root: &Path, c: &Config, verify: bool) -> Result<bool, St
     super::cache::validate_registry(root, c.persistent_cache.as_ref())?;
     let output = render(c)?;
     let same = output_preflight(root, &c.workflow_path, &output, MARKER)?;
-    if verify && !same {
-        return Err(format!(
+    match output_change(same, verify) {
+        OutputChange::Keep => Ok(false),
+        OutputChange::Drift => Err(format!(
             "generated release workflow drift: {}",
             c.workflow_path
-        ));
+        )),
+        OutputChange::Write => {
+            write_file(root, &c.workflow_path, output.as_bytes())?;
+            Ok(true)
+        }
     }
-    if !verify && !same {
-        write_file(root, &c.workflow_path, output.as_bytes())?;
-    }
-    Ok(!same)
 }
 
 #[cfg(not(verus_keep_ghost))]

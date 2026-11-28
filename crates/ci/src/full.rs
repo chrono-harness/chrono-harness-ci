@@ -1,6 +1,8 @@
 //! Fixed full-governance context transport; the configured judges own admission.
 #[cfg(not(verus_keep_ghost))]
-use super::{action, full_oid, output_preflight, scalar, shell, write_file};
+use super::{
+    OutputChange, action, full_oid, output_change, output_preflight, scalar, shell, write_file,
+};
 #[cfg(not(verus_keep_ghost))]
 use crate::units::Scope;
 #[cfg(not(verus_keep_ghost))]
@@ -249,16 +251,17 @@ pub(crate) fn generate(root: &Path, path: &str, c: &Config, verify: bool) -> Res
     let output = render(c, path)?;
     scope_preflight(root, c)?;
     let same = output_preflight(root, &c.workflow_path, &output, &marker(path))?;
-    if verify && !same {
-        return Err(format!(
+    match output_change(same, verify) {
+        OutputChange::Keep => Ok(false),
+        OutputChange::Drift => Err(format!(
             "generated full CI workflow drift: {}",
             c.workflow_path
-        ));
+        )),
+        OutputChange::Write => {
+            write_file(root, &c.workflow_path, output.as_bytes())?;
+            Ok(true)
+        }
     }
-    if !verify && !same {
-        write_file(root, &c.workflow_path, output.as_bytes())?;
-    }
-    Ok(!same)
 }
 
 #[cfg(not(verus_keep_ghost))]

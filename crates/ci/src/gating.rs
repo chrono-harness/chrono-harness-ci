@@ -573,7 +573,12 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     let facts = event_git::EventGit::new(root, &c.collection, candidate)?;
     units::verify_fixed(root, path, &c, |input| {
         let lock = facts.blob(candidate, input)?;
-        if candidate != revision && lock != facts.blob(&revision, input)? {
+        if candidate != revision
+            && !crate::verified_literals::observed_field_equal(
+                Some(lock.as_slice()),
+                Some(facts.blob(&revision, input)?.as_slice()),
+            )
+        {
             return Err(format!(
                 "detector workflow revision differs from candidate lock: {input}"
             ));
@@ -585,8 +590,9 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
         c.collection.check_config.as_str(),
         c.collection.workflow_path.as_str(),
     ] {
-        if facts.show(candidate, input)?.as_bytes()
-            != fs::read(root.join(input)).map_err(|e| e.to_string())?
+        let fixed = facts.show(candidate, input)?;
+        let checkout = fs::read(root.join(input)).map_err(|e| e.to_string())?;
+        if !crate::verified_literals::observed_field_equal(Some(fixed.as_bytes()), Some(&checkout))
         {
             return Err(format!(
                 "detector input differs from fixed candidate: {input}"
@@ -595,9 +601,8 @@ pub(crate) fn dispatch(args: &[String]) -> Result<String, String> {
     }
     facts.require_commit(&revision)?;
     let source = facts.show(&revision, &c.collection.workflow_path)?;
-    if source.as_bytes()
-        != fs::read(root.join(&c.collection.workflow_path)).map_err(|e| e.to_string())?
-    {
+    let checkout = fs::read(root.join(&c.collection.workflow_path)).map_err(|e| e.to_string())?;
+    if !crate::verified_literals::observed_field_equal(Some(source.as_bytes()), Some(&checkout)) {
         return Err("detector executed a different workflow source".into());
     }
     // Count complete immutable trees before obligation selection.
