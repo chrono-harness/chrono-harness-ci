@@ -54,7 +54,7 @@ chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-pro
   "$src/inventory.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$downloads_tests_operation.rlib" "$tests/verified_download.rs" "$include/verified_download.rs" "$include/observed.rs" "$include/requirements.rs" "$include/gather.rs"
 chrono-host-bootstrap check-compiler-sources proof ".chrono-harness/state/ci-proofs/$literals_tests_operation.rlib" "$tests/verified_literals.rs" \
-  "$tests/actions_lock.rs" "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
+  "$tests/actions_lock.rs" "$tests/native_cache_action.rs" "$support/cache.rs" "$support/gating.rs" "$support/initial_short.rs" \
   "$include/verified_literals.rs" "$include/actions_lock.rs" "$include/cache_action.rs" "$include/cache.rs" "$include/check_inputs.rs" "$include/codec.rs" "$include/downloads.rs" "$include/files.rs" "$include/gating.rs" \
   "$include/migrate.rs" "$include/release.rs" "$include/lib.rs" "$include/startup.rs" "$include/units.rs" "$include/runtime_session.rs" "$include/main.rs" "$include/event_git.rs" "$include/full.rs" "$include/initial.rs" "$include/preparation.rs" "$include/storage.rs" "$support/release.rs" \
   "$support/retained_receipts.rs" "$support/short.rs" \

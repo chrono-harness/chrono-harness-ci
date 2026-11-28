@@ -1,9 +1,68 @@
+#[cfg(verus_keep_ghost)]
+use super::policy::single_projection as output_policy;
+#[cfg(not(verus_keep_ghost))]
+use chrono_ci as output_policy;
+use output_policy::{
+    OutputChange, OutputError, loaded_output, output_change, workflow_size_allowed,
+};
+#[cfg(not(verus_keep_ghost))]
+use verus_builtin_macros::verus;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+#[cfg(verus_keep_ghost)]
+use vstd::string::StringSliceAdditionalSpecFns;
+#[cfg(verus_keep_ghost)]
+use vstd::vpanic as panic;
+
+verus! {
+fn expect_output(actual: bool)
+    requires actual,
+{
+    if !actual {
+        panic!();
+    }
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn workflow_output_error_priority_and_size_boundary() {
+    let directory = ".github/workflows/";
+    expect_output(workflow_size_allowed(directory, 500_000));
+    expect_output(!workflow_size_allowed(directory, 500_001));
+    expect_output(matches!(loaded_output(Err(()), "", "marker"), Err(OutputError::InvalidUtf8)));
+    expect_output(matches!(loaded_output(Ok(None), "", "marker"), Ok(false)));
+    expect_output(matches!(loaded_output(Ok(Some("marker")), "marker", "marker"), Ok(true)));
+}
+
+#[cfg(verus_keep_ghost)]
+fn ownership_precedes_equality(text: &str, expected: &str, marker: &str)
+    requires text.spec_bytes().len() < marker.spec_bytes().len(),
+{
+    let collision = loaded_output(Ok(Some(text)), text, marker);
+    let different = loaded_output(Ok(Some(text)), expected, marker);
+    expect_output(matches!(collision, Err(OutputError::Collision)));
+    expect_output(matches!(different, Err(OutputError::Collision)));
+}
+
+#[cfg_attr(not(verus_keep_ghost), test)]
+fn workflow_output_modes_apply_only_to_missing_or_drifted_outputs() {
+    expect_output(matches!(output_change(true, false), OutputChange::Keep));
+    expect_output(matches!(output_change(true, true), OutputChange::Keep));
+    expect_output(matches!(output_change(false, true), OutputChange::Drift));
+    expect_output(matches!(output_change(false, false), OutputChange::Write));
+}
+}
+
+#[cfg(not(verus_keep_ghost))]
 use std::{fs, path::Path};
+#[cfg(not(verus_keep_ghost))]
 use tempfile::tempdir;
 
+#[cfg(not(verus_keep_ghost))]
 const CONFIG: &str = ".chrono-harness/ci/check.json";
+#[cfg(not(verus_keep_ghost))]
 const REGISTRY: &str = ".chrono-harness/cache.json";
 
+#[cfg(not(verus_keep_ghost))]
 fn configured_jobs(native_jobs: &[&str], cache_jobs: &[&str]) -> String {
     let mut native = Vec::new();
     let mut selected = Vec::new();
@@ -21,16 +80,19 @@ fn configured_jobs(native_jobs: &[&str], cache_jobs: &[&str]) -> String {
     )
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn source(jobs: &[&str]) -> String {
     configured_jobs(jobs, jobs)
 }
 
+#[cfg(not(verus_keep_ghost))]
 fn write(root: &Path, path: &str, text: &str) {
     let target = root.join(path);
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     fs::write(target, text).unwrap();
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn native_host_command_has_one_writer_and_verify_preserves_drift() {
     let root = tempdir().unwrap();
@@ -93,6 +155,7 @@ fn native_host_command_has_one_writer_and_verify_preserves_drift() {
     }
 }
 
+#[cfg(not(verus_keep_ghost))]
 #[test]
 fn both_public_modes_reject_unregistered_combinations_and_leave_outputs_alone() {
     let root = tempdir().unwrap();

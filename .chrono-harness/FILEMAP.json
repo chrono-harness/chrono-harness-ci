@@ -634,7 +634,16 @@
           "kind": "test-execution",
           "to": "test:ci-tests"
         }
-      ]
+      ],
+      "verification": {
+        "role": "specification",
+        "roots": [
+          {
+            "path": "crates/ci-tests/tests/verified_literals.rs",
+            "operation": "verify.ci-literals-tests"
+          }
+        ]
+      }
     },
     {
       "path": "crates/ci-tests/tests/proof_support/ci/cache.rs",
