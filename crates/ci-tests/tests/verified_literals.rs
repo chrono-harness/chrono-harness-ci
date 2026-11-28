@@ -648,9 +648,7 @@ fn aggregate_reads_detector_output_and_unit_results_in_order() {
         validate_statuses(&config, &detection, &needs).unwrap_err(),
         "detector outputs missing"
     );
-    needs["detect"]["outputs"]["detection"] = json!({
-        "invalid": "fixed detection must agree"
-    }.to_string());
+    needs["detect"]["outputs"]["detection"] = json!("{}");
     assert!(validate_statuses(&config, &detection, &needs).is_err());
     needs["detect"]["outputs"]["detection"] = json!(serde_json::to_string(&detection).unwrap());
     needs["detect"]["outputs"]["unit_ci"] = json!(true);
